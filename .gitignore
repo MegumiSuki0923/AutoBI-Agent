@@ -27,3 +27,11 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Design docs (excluded from repo)
+01_项目总览.md
+02_系统架构与功能设计.md
+03_数据表与指标设计.md
+04_Prompt模板与AI测试设计.md
+05_两到三周开发计划.md
+06_简历写法与面试讲解.md
