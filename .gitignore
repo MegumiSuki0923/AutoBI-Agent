@@ -7,8 +7,17 @@ dist/
 venv/
 .venv/
 
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+
 # Environment
 .env
+.env.*
 .env.local
 
 # IDE
@@ -19,11 +28,31 @@ venv/
 
 # OS
 .DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Database
 *.duckdb
 *.db
+
+# Logs
+*.log
+
+# Streamlit
+.streamlit/
+
+# Generated data (build outputs)
+data/cleaned/
+data/*.csv
+
+# Original binary data (large Excel files, keep out of git)
+data/raw_data/
+
+# Claude Code local settings
+.claude/
+
+# Temporary dev scripts
+test_parse.py
 
 # Jupyter
 .ipynb_checkpoints/
@@ -35,3 +64,9 @@ Thumbs.db
 04_Prompt模板与AI测试设计.md
 05_两到三周开发计划.md
 06_简历写法与面试讲解.md
+
+# Local planning notes
+docs/development_plan.md
+
+# Claude Code project instructions
+CLAUDE.md
