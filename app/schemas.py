@@ -11,7 +11,7 @@ class AskRequest(BaseModel):
 class ChartSuggestion(BaseModel):
     chart_type: str = Field(
         ...,
-        description="推荐的图表可视化类型（如：line 折线图, bar 柱状图, pie 饼图, metric 指标卡）",
+        description="推荐的图表可视化类型（如：line 折线图, bar 柱状图, stacked_bar 堆叠柱状图, pie 饼图, metric 指标卡）",
         example="bar"
     )
     x_axis: Optional[str] = Field(
