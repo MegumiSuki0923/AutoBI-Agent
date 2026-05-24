@@ -72,7 +72,7 @@ SELECT
   SUM(current_units) AS vehicle_sales_volume
 FROM fact_vehicle_prod_sales_monthly
 WHERE stat_type = '销量'
-  AND data_month BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
+  AND CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
 GROUP BY model_name
 ORDER BY vehicle_sales_volume DESC
 LIMIT 20;
@@ -166,7 +166,7 @@ SELECT
   manufacturer_name,
   SUM(sales_current_units) AS nev_sales_volume
 FROM fact_nev_manufacturer_monthly
-WHERE data_month BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
+WHERE CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
   AND vehicle_category = '总计'
 GROUP BY manufacturer_name
 ORDER BY nev_sales_volume DESC
@@ -203,7 +203,7 @@ SELECT
   SUM(current_units) AS model_sales_volume
 FROM fact_vehicle_prod_sales_monthly
 WHERE stat_type = '销量'
-  AND data_month BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
+  AND CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
 GROUP BY model_name
 ORDER BY model_sales_volume DESC
 LIMIT 20;
@@ -427,7 +427,7 @@ SELECT
   province,
   SUM(metric_value) AS charging_facility_count
 FROM fact_charging_infrastructure_monthly
-WHERE data_month = DATE '2022-12-31'
+WHERE CAST(data_month AS DATE) = DATE '2022-12-31'
   AND metric_name = '公共充电桩数量'
 GROUP BY province
 ORDER BY charging_facility_count DESC

@@ -29,6 +29,11 @@ class ChartService:
         "month",
         "year",
         "time",
+        "day",
+        "weekly",
+        "monthly",
+        "yearly",
+        "daily",
         "data_month",
         "日期",
         "月份",
@@ -47,6 +52,11 @@ class ChartService:
         "ratio",
         "units",
         "gwh",
+        "value",
+        "val",
+        "num",
+        "number",
+        "quantity",
         "数量",
         "销量",
         "产量",
@@ -54,6 +64,7 @@ class ChartService:
         "占比",
         "比例",
         "渗透率",
+        "装车量",
     }
     TREND_KEYWORDS = {"趋势", "走势", "变化", "月度", "年度", "同比", "环比", "增长"}
     STRUCTURE_KEYWORDS = {"结构", "占比", "构成", "分布", "分类", "组成", "不同类型"}
@@ -142,27 +153,55 @@ class ChartService:
 
     def _is_time_field(self, column: str, values: List[Any]) -> bool:
         lowered = column.lower()
-        if any(keyword in lowered or keyword in column for keyword in self.TIME_KEYWORDS):
+        tokens = lowered.split("_")
+
+        # 1. 检查数据值：如果全是非空且符合日期格式，那一定是时间字段
+        non_empty = [value for value in values if value is not None and value != ""]
+        if non_empty and all(self._is_date_like(v) for v in non_empty):
             return True
 
-        non_empty = [value for value in values if value is not None and value != ""]
-        if not non_empty:
-            return False
+        # 2. 根据列名做规则匹配
+        last_token = tokens[-1] if tokens else ""
+        
+        # 常见的时间后缀指示词
+        is_time_suffix = last_token in {"date", "time", "month", "year", "day", "日期", "时间", "月份", "年份"}
+        # 显式排除包含数值关键字的后缀/复合词，比如月度销量 monthly_sales（虽然含有 month 但以 sales 结尾，属于数值）
+        # 以及 sales_date 等虽然含有 sales 但以 date 结尾，属于时间
+        is_time_name = (lowered == "data_month") or (
+            is_time_suffix and not any(t in self.NUMERIC_KEYWORDS for t in tokens[:-1])
+        )
+        if is_time_name:
+            return True
 
-        date_like_count = sum(1 for value in non_empty if self._is_date_like(value))
-        return date_like_count == len(non_empty)
+        # 含有时间词且完全没有数值词
+        has_time_token = any(t in self.TIME_KEYWORDS for t in tokens)
+        has_numeric_token = any(t in self.NUMERIC_KEYWORDS for t in tokens)
+        if has_time_token and not has_numeric_token:
+            return True
+
+        return False
 
     def _is_numeric_field(self, column: str, values: List[Any]) -> bool:
         lowered = column.lower()
-        if any(keyword in lowered or keyword in column for keyword in self.NUMERIC_KEYWORDS):
+        tokens = lowered.split("_")
+
+        # 含有数值词且完全没有时间词（或者数值词属于末尾/复合词）
+        has_numeric_token = any(t in self.NUMERIC_KEYWORDS for t in tokens)
+        
+        # 1. 检查数据值：如果全是非空且符合数字格式
+        non_empty = [value for value in values if value is not None and value != ""]
+        
+        if has_numeric_token:
             return True
 
-        non_empty = [value for value in values if value is not None and value != ""]
-        if not non_empty:
-            return False
+        if non_empty:
+            if all(self._is_number_like(v) for v in non_empty):
+                # 排除像 year, month 等纯数字时间列
+                if any(t in {"year", "month", "day", "年份", "月份", "日期"} for t in tokens):
+                    return False
+                return True
 
-        numeric_count = sum(1 for value in non_empty if self._is_number_like(value))
-        return numeric_count == len(non_empty)
+        return False
 
     def _is_date_like(self, value: Any) -> bool:
         if isinstance(value, datetime):

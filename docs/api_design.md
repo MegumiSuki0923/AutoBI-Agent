@@ -39,18 +39,22 @@ Streamlit 前端
 
 测试环境通过 FastAPI dependency override 替换 `AskPipeline` 或其内部服务，避免单元测试真实调用外部 LLM。
 
-当前真实链路：
+当前真实链路（混合路由）：
 
 ```text
 POST /api/ask
-  -> RAG 检索数据字典和指标口径
-  -> TextToSQLService 生成 SQL
-  -> SQLGuard 校验并补充 LIMIT
-  -> SQLExecutor 执行 DuckDB 查询
-  -> ChartService 推荐图表
-  -> AnalysisService 生成分析总结
-  -> HistoryService 记录成功或失败日志
-  -> 返回 AskResponse
+  -> 1. 意图极速匹配：如果是极简问候语（“你好”、“谢谢”等），直接本地路由至 Daily QA 回复，跳过后续步骤。
+  -> 2. 意图大模型路径：非极简问候语进入 RAG 检索数据字典和指标口径，并调用 TextToSQLService 做语义意图判定与 SQL 生成。
+       ├─ 若大模型判定为非数据问题 (is_data_query = false)：
+       │    ├─ 绕过 SQLGuard, SQLExecutor, ChartService, AnalysisService。
+       │    └─ 由 HistoryService 记录成功，直接返回带有大模型对话回复 chat_reply 的 AskResponse（映射在 analysis 字段）。
+       │
+       └─ 若大模型判定为数据问题 (is_data_query = true)：
+            ├─ SQLGuard 校验 SQL 并补充默认 LIMIT 100。
+            ├─ SQLExecutor 执行 DuckDB 数据库查询。
+            ├─ ChartService 基于字段和问题意图进行图表推荐（已修复将 monthly_sales 误判为时间轴的 Bug）。
+            ├─ AnalysisService 基于数据生成核心结论、数据依据和行动建议。
+            └─ HistoryService 记录成功并返回完整 AskResponse。
 ```
 
 ## 3. 接口清单

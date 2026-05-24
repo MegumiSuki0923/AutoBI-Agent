@@ -4,20 +4,45 @@ import os
 from typing import Any, Dict, List, Optional
 
 import altair as alt
+import duckdb
 import pandas as pd
 import requests
 import streamlit as st
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8000/api/ask"
+DB_PATH = "data/autobi.duckdb"
+QUERY_SCOPE_TITLE = "业务查询范围"
 
-STANDARD_QUESTIONS = [
-    "2022 年各厂商新能源汽车销量排名如何？",
-    "新能源汽车渗透率的月度变化趋势如何？",
-    "各省充电设施数量分布如何？",
-    "动力电池不同材料类型的装车量结构如何？",
-    "2022 年各车型销量 Top 5 是什么？",
+BUSINESS_QUERY_SCOPES = [
+    {
+        "label": "汽车品牌车型月度产销表",
+        "table_name": "fact_vehicle_prod_sales_monthly",
+        "question": "2022 年各车型销量 Top 5 是什么？",
+    },
+    {
+        "label": "新能源厂商月度产销表",
+        "table_name": "fact_nev_manufacturer_monthly",
+        "question": "2022 年各厂商新能源汽车销量排名如何？",
+    },
+    {
+        "label": "新能源总体月度产销表",
+        "table_name": "fact_nev_overall_monthly",
+        "question": "新能源汽车渗透率的月度变化趋势如何？",
+    },
+    {
+        "label": "充电设施月度指标表",
+        "table_name": "fact_charging_infrastructure_monthly",
+        "question": "各省充电设施数量分布如何？",
+    },
+    {
+        "label": "动力电池月度装车指标表",
+        "table_name": "fact_battery_installation_monthly",
+        "question": "动力电池不同材料类型的装车量结构如何？",
+    },
 ]
+
+STANDARD_QUESTIONS = [scope["question"] for scope in BUSINESS_QUERY_SCOPES]
 
 
 def call_ask_api(
@@ -46,12 +71,16 @@ def main() -> None:
         layout="wide",
     )
 
+    if st.session_state.get("current_page") == "table_detail":
+        _render_table_detail_page()
+        return
+
     st.title("AutoBI Agent")
     st.caption("面向汽车产业数据的智能问数助手")
 
     api_url = _render_sidebar()
     _init_session_state()
-    _render_standard_question_buttons(api_url=api_url)
+    _render_standard_question_buttons()
 
     with st.form("ask_form", clear_on_submit=False):
         query = st.text_area(
@@ -87,23 +116,62 @@ def _init_session_state() -> None:
         st.session_state["question"] = STANDARD_QUESTIONS[0]
 
 
-def _render_standard_question_buttons(api_url: str) -> None:
-    st.subheader("标准问题")
-    for index, question in enumerate(STANDARD_QUESTIONS):
-        if index % 2 == 0:
-            columns = st.columns(2)
-        with columns[index % 2]:
+def _render_standard_question_buttons() -> None:
+    st.subheader(QUERY_SCOPE_TITLE)
+    for index, scope in enumerate(BUSINESS_QUERY_SCOPES):
+        if index % 3 == 0:
+            cols = st.columns(3)
+        with cols[index % 3]:
             if st.button(
-                question,
-                key=f"standard_question_{index}",
+                scope["label"],
+                key=f"scope_button_{index}",
+                help=f"点击查看 {scope['table_name']} 表数据",
                 use_container_width=True,
             ):
-                _handle_standard_question_click(question=question, api_url=api_url)
+                st.session_state["current_page"] = "table_detail"
+                st.session_state["selected_scope"] = scope
+                st.rerun()
 
 
-def _handle_standard_question_click(question: str, api_url: str) -> None:
-    st.session_state["question"] = question
-    _handle_query(query=question, api_url=api_url)
+def _render_table_detail_page() -> None:
+    """展示单张业务表的数据预览页面。"""
+    scope = st.session_state.get("selected_scope")
+    if not scope:
+        st.session_state.pop("current_page", None)
+        st.rerun()
+        return
+
+    if st.button("← 返回首页"):
+        st.session_state.pop("current_page", None)
+        st.session_state.pop("selected_scope", None)
+        st.rerun()
+
+    table_name = scope["table_name"]
+    st.title(scope["label"])
+    st.caption(f"数据表：`{table_name}`")
+
+    try:
+        conn = duckdb.connect(DB_PATH, read_only=True)
+        total_rows = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        col_info = conn.execute(f"DESCRIBE {table_name}").df()
+        df = conn.execute(f"SELECT * FROM {table_name}").df()
+        conn.close()
+
+        info_col, _ = st.columns([1, 3])
+        with info_col:
+            st.metric("总行数", f"{total_rows:,}")
+
+        with st.expander("字段信息", expanded=False):
+            st.dataframe(col_info, use_container_width=True, hide_index=True)
+
+        st.subheader("数据详情")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.subheader("推荐问题")
+        st.info(f"💡 {scope['question']}")
+
+    except Exception as exc:
+        st.error(f"查询表数据失败：{exc}")
 
 
 def _handle_query(query: str, api_url: str) -> None:
@@ -151,7 +219,7 @@ def _render_response(payload: Dict[str, Any]) -> None:
 
         st.subheader("图表")
         _render_chart(df, chart_suggestion)
-    else:
+    elif sql:
         st.info("当前查询结果为空。")
 
     if analysis:

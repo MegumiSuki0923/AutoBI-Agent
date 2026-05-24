@@ -2,7 +2,7 @@ import os
 import json
 import dotenv
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 from openai import OpenAI
 
 class TextToSQLService:
@@ -38,9 +38,9 @@ class TextToSQLService:
             raise FileNotFoundError(f"未找到 Text-to-SQL Prompt 模板文件: {self.prompt_path}")
         return p.read_text(encoding="utf-8")
 
-    def generate_sql(self, question: str, schema_context: str, metric_context: str) -> Tuple[str, str]:
+    def generate_sql(self, question: str, schema_context: str, metric_context: str) -> Tuple[bool, Optional[str], str, Optional[str]]:
         """
-        利用 LLM 生成 SQL 和解释。
+        利用 LLM 进行意图判定和 SQL 生成。
 
         参数:
             question: 用户的自然语言提问。
@@ -48,9 +48,11 @@ class TextToSQLService:
             metric_context: RAG 召回的指标口径定义信息。
 
         返回:
-            一个元组 (sql, reason):
-                - sql: LLM 生成的只读 SQL 语句。
-                - reason: LLM 编写的查询逻辑解释。
+            一个四元组 (is_data_query, sql, reason, chat_reply):
+                - is_data_query: 是否是真实可执行的数据查询。
+                - sql: LLM 生成的只读 SQL 语句（非数据查询时为 None）。
+                - reason: LLM 编写的查询逻辑解释（或无法查询的原因）。
+                - chat_reply: 针对非数据查询生成的对话回复（数据查询时为 None）。
         """
         # 1. 加载并填充模板
         template = self._load_prompt_template()
@@ -77,13 +79,28 @@ class TextToSQLService:
             raw_content = response.choices[0].message.content
             data = json.loads(raw_content)
 
-            sql = data.get("sql", "").strip()
+            is_data_query = data.get("is_data_query", True)
+            if isinstance(is_data_query, str):
+                is_data_query = is_data_query.lower() == "true"
+            is_data_query = bool(is_data_query)
+
+            sql = data.get("sql")
+            if sql:
+                sql = sql.strip()
+
             reason = data.get("reason", "").strip()
 
-            if not sql:
-                raise ValueError("大模型响应的 JSON 中不包含 'sql' 字段")
+            chat_reply = data.get("chat_reply")
+            if chat_reply:
+                chat_reply = chat_reply.strip()
 
-            return sql, reason
+            # 容错处理：若是数据查询但 sql 为空
+            if is_data_query and not sql:
+                is_data_query = False
+                if not chat_reply:
+                    chat_reply = "抱歉，我未能为您生成用于执行该查询的 SQL。"
+
+            return is_data_query, sql, reason, chat_reply
 
         except json.JSONDecodeError as je:
             raise ValueError(f"大模型返回的数据不是合法的 JSON 格式: {raw_content}") from je

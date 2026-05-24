@@ -65,12 +65,12 @@ def test_text_to_sql_service_mocked_success(mock_openai_class):
 
         # 模拟大模型输出的 JSON 字符串
         mock_message = MagicMock()
-        mock_message.content = '{"sql": "SELECT * FROM fact_vehicle_prod_sales_monthly LIMIT 10;", "reason": "简单查询示例"}'
+        mock_message.content = '{"is_data_query": true, "sql": "SELECT * FROM fact_vehicle_prod_sales_monthly LIMIT 10;", "reason": "简单查询示例", "chat_reply": null}'
         mock_response.choices = [MagicMock(message=mock_message)]
 
         # 2. 调用服务
         service = TextToSQLService()
-        sql, reason = service.generate_sql(
+        is_data_query, sql, reason, chat_reply = service.generate_sql(
             question="查询销量",
             schema_context="schema",
             metric_context="metric"
@@ -82,5 +82,34 @@ def test_text_to_sql_service_mocked_success(mock_openai_class):
         assert kwargs["response_format"] == {"type": "json_object"}
         assert kwargs["temperature"] == 0.1
 
+        assert is_data_query is True
         assert sql == "SELECT * FROM fact_vehicle_prod_sales_monthly LIMIT 10;"
         assert reason == "简单查询示例"
+        assert chat_reply is None
+
+
+@patch("app.services.text_to_sql_service.OpenAI")
+def test_text_to_sql_service_mocked_chat_reply(mock_openai_class):
+    """测试当大模型分类为非数据查询时的解析逻辑"""
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "dummy_key"}):
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        mock_message = MagicMock()
+        mock_message.content = '{"is_data_query": false, "sql": null, "reason": "无法回答的问题", "chat_reply": "抱歉，我目前仅支持汽车数据查询。"}'
+        mock_response.choices = [MagicMock(message=mock_message)]
+
+        service = TextToSQLService()
+        is_data_query, sql, reason, chat_reply = service.generate_sql(
+            question="今天天气如何？",
+            schema_context="schema",
+            metric_context="metric"
+        )
+
+        assert is_data_query is False
+        assert sql is None
+        assert reason == "无法回答的问题"
+        assert chat_reply == "抱歉，我目前仅支持汽车数据查询。"

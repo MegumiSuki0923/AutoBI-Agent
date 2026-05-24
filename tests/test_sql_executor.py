@@ -1,6 +1,7 @@
 import pytest
 import duckdb
 from app.services.sql_executor import SQLExecutor
+from app.services.sql_guard import SQLGuard
 
 def test_sql_executor_memory_success():
     """测试内存数据库中执行基础 SQL 查询是否成功"""
@@ -27,6 +28,28 @@ def test_sql_executor_real_db():
     assert len(rows) <= 2
     for row in rows:
         assert isinstance(row, list)
+
+
+def test_sql_executor_runs_guarded_data_month_date_filter():
+    """验证 LLM 常见的 DATE 边界过滤能被改写为 DuckDB 可执行 SQL"""
+    executor = SQLExecutor(db_path="data/autobi.duckdb")
+    sql = SQLGuard(default_limit=100).validate_and_rewrite(
+        """
+        SELECT manufacturer_name, SUM(sales_current_units) AS volume
+        FROM fact_nev_manufacturer_monthly
+        WHERE data_month BETWEEN CAST('2022-01-01' AS DATE)
+          AND CAST('2022-12-31' AS DATE)
+        GROUP BY manufacturer_name
+        ORDER BY volume DESC
+        LIMIT 5
+        """
+    )
+
+    columns, rows = executor.execute(sql)
+
+    assert columns == ["manufacturer_name", "volume"]
+    assert rows
+
 
 def test_sql_executor_invalid_sql_syntax():
     """测试当传入错误的 SQL 语法时，执行器是否能正常抛出异常"""

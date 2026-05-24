@@ -55,6 +55,7 @@ class SQLGuard:
         expression = self._parse_single_statement(sql)
         self._validate_select_only(expression)
         self._validate_tables(expression)
+        expression = self._normalize_date_filters(expression)
         return self._with_limit(expression)
 
     def _parse_single_statement(self, sql: str) -> exp.Expression:
@@ -106,6 +107,38 @@ class SQLGuard:
                     f"Table '{table.name}' is not allowed. Allowed tables: {allowed}"
                 )
 
+    def _normalize_date_filters(self, expression: exp.Expression) -> exp.Expression:
+        def rewrite(node: exp.Expression) -> exp.Expression:
+            if (
+                isinstance(node, exp.Between)
+                and _is_data_month_column(node.this)
+                and (
+                    _is_date_expression(node.args.get("low"))
+                    or _is_date_expression(node.args.get("high"))
+                )
+            ):
+                updated = node.copy()
+                updated.set("this", _cast_as_date(node.this))
+                return updated
+
+            if isinstance(node, (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE)):
+                left = node.this
+                right = node.expression
+
+                if _is_data_month_column(left) and _is_date_expression(right):
+                    updated = node.copy()
+                    updated.set("this", _cast_as_date(left))
+                    return updated
+
+                if _is_data_month_column(right) and _is_date_expression(left):
+                    updated = node.copy()
+                    updated.set("expression", _cast_as_date(right))
+                    return updated
+
+            return node
+
+        return expression.transform(rewrite)
+
     def _with_limit(self, expression: exp.Expression) -> str:
         if expression.args.get("limit") is None:
             expression = expression.limit(self.default_limit)
@@ -120,3 +153,15 @@ def guard_sql(sql: str, default_limit: int = 100) -> str:
 
 def _normalize_name(name: str) -> str:
     return name.strip().lower()
+
+
+def _is_data_month_column(expression: exp.Expression | None) -> bool:
+    return isinstance(expression, exp.Column) and _normalize_name(expression.name) == "data_month"
+
+
+def _is_date_expression(expression: exp.Expression | None) -> bool:
+    return isinstance(expression, exp.Cast) and expression.to and expression.to.is_type("DATE")
+
+
+def _cast_as_date(expression: exp.Expression) -> exp.Cast:
+    return exp.Cast(this=expression.copy(), to=exp.DataType.build("DATE"))

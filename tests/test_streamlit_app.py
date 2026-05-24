@@ -3,14 +3,39 @@ from unittest.mock import MagicMock
 import pandas as pd
 
 from frontend.streamlit_app import (
+    BUSINESS_QUERY_SCOPES,
+    QUERY_SCOPE_TITLE,
     STANDARD_QUESTIONS,
     _build_pie_chart,
     _build_x_axis_encoding,
-    _handle_standard_question_click,
     build_result_dataframe,
     call_ask_api,
     st,
 )
+
+
+def test_query_scope_title_replaces_standard_questions_label():
+    assert QUERY_SCOPE_TITLE == "业务查询范围"
+
+
+def test_business_query_scopes_show_current_business_tables():
+    labels = [scope["label"] for scope in BUSINESS_QUERY_SCOPES]
+    table_names = [scope["table_name"] for scope in BUSINESS_QUERY_SCOPES]
+
+    assert labels == [
+        "汽车品牌车型月度产销表",
+        "新能源厂商月度产销表",
+        "新能源总体月度产销表",
+        "充电设施月度指标表",
+        "动力电池月度装车指标表",
+    ]
+    assert table_names == [
+        "fact_vehicle_prod_sales_monthly",
+        "fact_nev_manufacturer_monthly",
+        "fact_nev_overall_monthly",
+        "fact_charging_infrastructure_monthly",
+        "fact_battery_installation_monthly",
+    ]
 
 
 def test_standard_questions_cover_main_business_topics():
@@ -64,21 +89,6 @@ def test_x_axis_labels_are_horizontal():
     encoding = _build_x_axis_encoding("brand").to_dict()
 
     assert encoding["axis"]["labelAngle"] == 0
-
-
-def test_standard_question_click_updates_input_and_runs_query(monkeypatch):
-    calls = []
-    st.session_state.clear()
-
-    monkeypatch.setattr(
-        "frontend.streamlit_app._handle_query",
-        lambda query, api_url: calls.append((query, api_url)),
-    )
-
-    _handle_standard_question_click("各省充电设施数量分布如何？", "http://testserver/api/ask")
-
-    assert st.session_state["question"] == "各省充电设施数量分布如何？"
-    assert calls == [("各省充电设施数量分布如何？", "http://testserver/api/ask")]
 
 
 def test_build_pie_chart_uses_arc_mark():

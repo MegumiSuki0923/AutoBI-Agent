@@ -75,6 +75,7 @@ dim_data_source.source_id
 业务关联说明：
 
 - 各事实表通过 `data_month` 对齐月度时间粒度。
+- 当前 DuckDB 从 CSV 入库后 `data_month` 字段类型为 `VARCHAR`；做日期范围或日期比较过滤时应使用 `CAST(data_month AS DATE)`。
 - 新能源渗透率需要将 `fact_nev_overall_monthly` 的新能源销量与 `fact_vehicle_prod_sales_monthly` 的总汽车销量按月对齐。
 - 厂商、车型、燃料类型、材料类型、车型类别等维度暂不单独建维表，MVP 阶段直接保存在事实表中。
 - 后续如果字段稳定，可再拆分 `dim_manufacturer`、`dim_vehicle_model`、`dim_region` 等维表。
@@ -107,7 +108,7 @@ dim_data_source.source_id
 | `manufacturer_name` | `VARCHAR` | 否 | 制造厂 / 厂商名称 | `制造厂` | `特斯拉(上海)` |
 | `model_name` | `VARCHAR` | 否 | 车型名称 | `车型` | `Model3(BEV)` |
 | `vehicle_category` | `VARCHAR` | 是 | 车型大类 | `车型大类` | `轿车` |
-| `data_month` | `DATE` | 否 | 数据月份，统一取月末或月初日期 | `数据日期` | `2022-08-31` |
+| `data_month` | `VARCHAR` | 否 | 数据月份，统一取月末或月初日期；日期过滤时需 `CAST(data_month AS DATE)` | `数据日期` | `2022-08-31` |
 | `current_units` | `DOUBLE` | 是 | 当期值，单位辆 | `当期值(辆)` | `14954` |
 | `cumulative_units` | `DOUBLE` | 是 | 年内累计值，单位辆 | `累计值(辆)` | `45754` |
 | `last_year_cumulative_units` | `DOUBLE` | 是 | 去年同期累计值，单位辆 | `去年同期累计值(辆)` | `10658` |
@@ -128,7 +129,7 @@ dim_data_source.source_id
 | `vehicle_category` | `VARCHAR` | 是 | 车型大类 | `车型大类` | `总计` |
 | `vehicle_segment` | `VARCHAR` | 是 | 车型细分 | `车型细分` | `总计` |
 | `fuel_type` | `VARCHAR` | 是 | 燃料类型 | `燃料类型` | `纯电动` |
-| `data_month` | `DATE` | 否 | 数据月份 | `数据日期` | `2022-08-31` |
+| `data_month` | `VARCHAR` | 否 | 数据月份；日期过滤时需 `CAST(data_month AS DATE)` | `数据日期` | `2022-08-31` |
 | `production_current_units` | `DOUBLE` | 是 | 当期产量，单位辆 | `产量-当期值(辆)` | `175170` |
 | `production_yoy_rate` | `DOUBLE` | 是 | 产量当期同比，单位 % | `产量-当期同比(%)` | `180.05` |
 | `production_cumulative_units` | `DOUBLE` | 是 | 产量累计值，单位辆 | `产量-累计值(辆)` | `985169` |
@@ -151,7 +152,7 @@ dim_data_source.source_id
 | `vehicle_category` | `VARCHAR` | 是 | 车型大类 | `车型大类` | `总计` |
 | `vehicle_segment` | `VARCHAR` | 是 | 车型细分 | `车型细分` | `总计` |
 | `fuel_type` | `VARCHAR` | 是 | 燃料类型 | `燃料类型` | `插电式混合动力` |
-| `data_month` | `DATE` | 否 | 数据月份 | `数据日期` | `2022-08-31` |
+| `data_month` | `VARCHAR` | 否 | 数据月份；日期过滤时需 `CAST(data_month AS DATE)` | `数据日期` | `2022-08-31` |
 | `production_current_units` | `DOUBLE` | 是 | 当期产量，单位辆 | `产量-当期值(辆)` | `154550` |
 | `production_yoy_rate` | `DOUBLE` | 是 | 产量当期同比，单位 % | `产量-当期同比(%)` | `174.95` |
 | `production_cumulative_units` | `DOUBLE` | 是 | 产量累计值，单位辆 | `产量-累计值(辆)` | `856916` |
@@ -172,7 +173,7 @@ dim_data_source.source_id
 | `record_id` | `VARCHAR` | 否 | 清洗后的记录 ID | `CHG000001` |
 | `source_id` | `VARCHAR` | 否 | 数据源 ID | `SRC004` |
 | `province` | `VARCHAR` | 是 | 省份或地区 | `广东` |
-| `data_month` | `DATE` | 否 | 数据月份 | `2022-12-31` |
+| `data_month` | `VARCHAR` | 否 | 数据月份；日期过滤时需 `CAST(data_month AS DATE)` | `2022-12-31` |
 | `metric_name` | `VARCHAR` | 否 | 指标名称 | `公共充电桩数量` |
 | `metric_value` | `DOUBLE` | 是 | 指标值 | `383000` |
 | `unit` | `VARCHAR` | 是 | 单位 | `台` |
@@ -192,7 +193,7 @@ dim_data_source.source_id
 | `source_id` | `VARCHAR` | 否 | 数据源 ID | `SRC006` |
 | `dimension_type` | `VARCHAR` | 否 | 维度类型 | `material_type` |
 | `dimension_value` | `VARCHAR` | 否 | 维度值 | `磷酸铁锂` |
-| `data_month` | `DATE` | 否 | 数据月份 | `2022-12-31` |
+| `data_month` | `VARCHAR` | 否 | 数据月份；日期过滤时需 `CAST(data_month AS DATE)` | `2022-12-31` |
 | `metric_name` | `VARCHAR` | 否 | 指标名称 | `装车量` |
 | `metric_value` | `DOUBLE` | 是 | 指标值 | `15.2` |
 | `unit` | `VARCHAR` | 是 | 单位 | `GWh` |

@@ -47,6 +47,40 @@ def test_with_query_can_reference_cte_alias_and_allowed_base_table():
     assert sql.endswith("LIMIT 10")
 
 
+def test_data_month_between_date_bounds_casts_column_for_duckdb():
+    guard = SQLGuard(default_limit=100)
+
+    sql = guard.validate_and_rewrite(
+        """
+        SELECT manufacturer_name, SUM(sales_current_units) AS volume
+        FROM fact_nev_manufacturer_monthly
+        WHERE data_month BETWEEN CAST('2022-01-01' AS DATE)
+          AND CAST('2022-12-31' AS DATE)
+        GROUP BY manufacturer_name
+        ORDER BY volume DESC
+        """
+    )
+
+    assert "CAST(data_month AS DATE) BETWEEN" in sql
+    assert "CAST('2022-01-01' AS DATE)" in sql
+    assert "CAST('2022-12-31' AS DATE)" in sql
+
+
+def test_data_month_date_comparison_casts_column_for_duckdb():
+    guard = SQLGuard(default_limit=100)
+
+    sql = guard.validate_and_rewrite(
+        """
+        SELECT province, SUM(metric_value) AS charging_facility_count
+        FROM fact_charging_infrastructure_monthly
+        WHERE data_month = DATE '2022-12-31'
+        GROUP BY province
+        """
+    )
+
+    assert "CAST(data_month AS DATE) = CAST('2022-12-31' AS DATE)" in sql
+
+
 @pytest.mark.parametrize(
     "dangerous_sql",
     [

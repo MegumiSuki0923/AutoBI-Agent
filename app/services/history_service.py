@@ -45,7 +45,7 @@ class HistoryService:
         self,
         *,
         question: str,
-        sql: str,
+        sql: Optional[str],
         row_count: int,
         chart_type: Optional[str],
         execution_time_ms: float,

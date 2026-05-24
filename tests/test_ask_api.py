@@ -33,7 +33,9 @@ class FakeTextToSQLService:
 
     def generate_sql(self, question, schema_context, metric_context):
         self.calls.append((question, schema_context, metric_context))
-        return self.sql, "按厂商汇总销量。"
+        if "天气" in question or "闲聊" in question:
+            return False, None, "超出了数据库表范围。", "很抱歉，我目前仅支持汽车产业相关数据的智能问数，无法回答天气或闲聊类问题。"
+        return True, self.sql, "按数据结构查询。", None
 
 
 class FakeSQLExecutor:
@@ -145,6 +147,28 @@ def test_ask_api_runs_real_pipeline_with_safe_sql():
     assert pipeline.history_service.success_records[0]["chart_type"] == "bar"
 
 
+def test_ask_api_handles_latest_date_metadata_query_as_data_query():
+    pipeline = _build_pipeline(
+        "SELECT MAX(CAST(data_month AS DATE)) FROM fact_vehicle_prod_sales_monthly"
+    )
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/api/ask",
+            json={"query": "你的知识库，最新的是哪一天？"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert len(pipeline.text_to_sql_service.calls) == 1
+    assert pipeline.text_to_sql_service.calls[0][0] == "你的知识库，最新的是哪一天？"
+
+
 def test_ask_api_records_failure_when_sql_guard_rejects_query():
     dangerous_sql = "DROP TABLE fact_nev_manufacturer_monthly"
     pipeline = _build_pipeline(dangerous_sql)
@@ -173,3 +197,130 @@ def test_ask_api_records_failure_when_sql_guard_rejects_query():
             "execution_time_ms": payload["execution_time_ms"],
         }
     ]
+
+
+def test_ask_api_answers_capability_question_without_calling_text_to_sql():
+    pipeline = _build_pipeline("SELECT 1")
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post("/api/ask", json={"query": "我可以查询什么信息？"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["sql"] is None
+    assert payload["chart_suggestion"] is None
+    assert payload["result"]["columns"] == ["table_name", "business_scope"]
+    assert [
+        "fact_nev_manufacturer_monthly",
+        "新能源厂商月度产销表：厂商销量排名、厂商销量趋势、产销对比",
+    ] in payload["result"]["rows"]
+    assert "可以查询" in payload["analysis"]
+
+    assert pipeline.rag_service.queries == []
+    assert pipeline.text_to_sql_service.calls == []
+    assert pipeline.sql_executor.executed_sql is None
+    assert pipeline.history_service.success_records[0]["question"] == "我可以查询什么信息？"
+    assert pipeline.history_service.success_records[0]["sql"] is None
+    assert pipeline.history_service.success_records[0]["row_count"] == len(payload["result"]["rows"])
+    assert pipeline.history_service.success_records[0]["chart_type"] is None
+
+
+def test_ask_api_answers_alternative_capability_wording_without_text_to_sql():
+    pipeline = _build_pipeline("SELECT 1")
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post("/api/ask", json={"query": "有哪些数据可以查？"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["sql"] is None
+    assert "可以查询" in payload["analysis"]
+    assert pipeline.text_to_sql_service.calls == []
+    assert pipeline.sql_executor.executed_sql is None
+
+
+def test_ask_api_answers_greeting_without_calling_text_to_sql():
+    pipeline = _build_pipeline("SELECT 1")
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post("/api/ask", json={"query": "你好"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["sql"] is None
+    assert payload["chart_suggestion"] is None
+    assert "AutoBI" in payload["analysis"]
+    assert pipeline.rag_service.queries == []
+    assert pipeline.text_to_sql_service.calls == []
+    assert pipeline.sql_executor.executed_sql is None
+
+
+def test_ask_api_answers_identity_question_without_calling_text_to_sql():
+    pipeline = _build_pipeline("SELECT 1")
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post("/api/ask", json={"query": "你能做什么？"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["sql"] is None
+    assert "AutoBI" in payload["analysis"]
+    assert pipeline.text_to_sql_service.calls == []
+    assert pipeline.sql_executor.executed_sql is None
+
+
+def test_ask_api_answers_out_of_scope_question_by_calling_llm_classifier():
+    pipeline = _build_pipeline("SELECT 1")
+    app.dependency_overrides[get_ask_pipeline] = lambda: pipeline
+    client = TestClient(app)
+
+    try:
+        response = client.post("/api/ask", json={"query": "今天天气怎么样？"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["sql"] is None
+    assert payload["chart_suggestion"] is None
+    assert "汽车产业相关数据" in payload["analysis"]
+    assert pipeline.rag_service.queries == [("今天天气怎么样？", 6)]
+    assert len(pipeline.text_to_sql_service.calls) == 1
+    assert pipeline.sql_executor.executed_sql is None
+
+
+def test_daily_qa_does_not_require_llm_services(monkeypatch):
+    class ExplodingLLMService:
+        def __init__(self):
+            raise AssertionError("LLM service should not be initialized")
+
+    monkeypatch.setattr("app.api.ask.TextToSQLService", ExplodingLLMService)
+    monkeypatch.setattr("app.api.ask.AnalysisService", ExplodingLLMService)
+
+    pipeline = AskPipeline(history_service=FakeHistoryService())
+    response = pipeline.run("你是谁？")
+
+    assert response.success is True
+    assert response.sql is None
+    assert response.result.columns == ["table_name", "business_scope"]

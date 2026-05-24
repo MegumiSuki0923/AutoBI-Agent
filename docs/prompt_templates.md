@@ -6,7 +6,7 @@
 
 | 模板文件 | 使用服务 | 主要用途 | 输出格式 |
 | --- | --- | --- | --- |
-| `app/prompts/text_to_sql_prompt.md` | `TextToSQLService` | 将自然语言问题转换为 DuckDB 只读 SQL | JSON：`sql`, `reason` |
+| `app/prompts/text_to_sql_prompt.md` | `TextToSQLService` | 识别数据/非数据查询意图，生成 DuckDB 只读 SQL 或生成对话回复 | JSON：`is_data_query`, `sql`, `reason`, `chat_reply` |
 | `app/prompts/analysis_prompt.md` | `AnalysisService` | 根据问题、SQL 和查询结果生成 BI 分析总结 | JSON：`core_conclusion`, `data_evidence`, `action_suggestions` |
 
 ## 2. Text-to-SQL Prompt
@@ -25,10 +25,23 @@
 
 ### 2.3 输出 JSON
 
+对于数据查询问题：
 ```json
 {
+  "is_data_query": true,
   "sql": "SELECT ... LIMIT 100;",
-  "reason": "说明 SQL 的查询逻辑、口径选择和默认假设。"
+  "reason": "说明 SQL 的查询逻辑、口径选择和默认假设。",
+  "chat_reply": null
+}
+```
+
+对于日常对话、超出库表数据范围或咨询提问：
+```json
+{
+  "is_data_query": false,
+  "sql": null,
+  "reason": "分析解释为什么该提问不属于该数据库的查询范围。",
+  "chat_reply": "生成的友好礼貌对话回复，或引导进行汽车产业数据查询的提示语。"
 }
 ```
 
