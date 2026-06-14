@@ -26,6 +26,18 @@ DEFAULT_ALLOWED_TABLES = frozenset(
         "ads_charging_facility_province_distribution",
         "ads_battery_material_share",
         "ads_battery_vehicle_type_share",
+        "dim_time", "ods_dim_time", "dwd_dim_time",
+        "dim_manufacturer", "ods_dim_manufacturer", "dwd_dim_manufacturer",
+        "dim_vehicle_model", "ods_dim_vehicle_model", "dwd_dim_vehicle_model",
+        "dim_province", "ods_dim_province", "dwd_dim_province",
+        "dim_fuel_type", "ods_dim_fuel_type", "dwd_dim_fuel_type",
+        "dim_battery_material", "ods_dim_battery_material", "dwd_dim_battery_material",
+        "dim_charging_operator", "ods_dim_charging_operator", "dwd_dim_charging_operator",
+        "fact_global_ev_sales_yearly", "ods_fact_global_ev_sales_yearly", "dwd_global_ev_sales_yearly", "dws_global_ev_sales_yearly", "ads_global_ev_sales_yearly",
+        "fact_global_ev_stock_yearly", "ods_fact_global_ev_stock_yearly", "dwd_global_ev_stock_yearly", "dws_global_ev_stock_yearly", "ads_global_ev_stock_yearly",
+        "fact_battery_production_monthly", "ods_fact_battery_production_monthly", "dwd_battery_production_monthly", "dws_battery_production_monthly", "ads_battery_production_monthly",
+        "fact_vehicle_production_province_monthly", "ods_fact_vehicle_production_province_monthly", "dwd_vehicle_production_province_monthly", "dws_vehicle_production_province_monthly", "ads_vehicle_production_province_monthly",
+        "fact_charging_operator_monthly", "ods_fact_charging_operator_monthly", "dwd_charging_operator_monthly", "dws_charging_operator_monthly", "ads_charging_operator_monthly",
     }
 )
 

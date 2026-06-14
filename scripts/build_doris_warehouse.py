@@ -17,12 +17,26 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CLEANED_DIR = PROJECT_ROOT / "data" / "cleaned"
 
 SOURCE_TABLES = [
+    # 维度表
     "dim_data_source",
+    "dim_time",
+    "dim_manufacturer",
+    "dim_vehicle_model",
+    "dim_province",
+    "dim_fuel_type",
+    "dim_battery_material",
+    "dim_charging_operator",
+    # 事实表
     "fact_vehicle_prod_sales_monthly",
     "fact_nev_manufacturer_monthly",
     "fact_nev_overall_monthly",
     "fact_charging_infrastructure_monthly",
     "fact_battery_installation_monthly",
+    "fact_global_ev_sales_yearly",
+    "fact_global_ev_stock_yearly",
+    "fact_battery_production_monthly",
+    "fact_vehicle_production_province_monthly",
+    "fact_charging_operator_monthly",
 ]
 
 
@@ -405,8 +419,96 @@ def _layer_sql_statements() -> list[str]:
         FROM dws_battery_structure_monthly
         WHERE dimension_type = 'vehicle_type'
         """,
+        """
+        DROP TABLE IF EXISTS dwd_global_ev_sales_yearly
+        """,
+        """
+        CREATE TABLE dwd_global_ev_sales_yearly
+        DISTRIBUTED BY HASH(record_id) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT
+            record_id,
+            source_id,
+            country,
+            ev_type,
+            CAST(data_year AS BIGINT) AS data_year,
+            CAST(sales_volume AS DOUBLE) AS sales_volume,
+            unit
+        FROM ods_fact_global_ev_sales_yearly
+        """,
+        """
+        DROP TABLE IF EXISTS dwd_global_ev_stock_yearly
+        """,
+        """
+        CREATE TABLE dwd_global_ev_stock_yearly
+        DISTRIBUTED BY HASH(record_id) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT
+            record_id,
+            source_id,
+            country,
+            ev_type,
+            CAST(data_year AS BIGINT) AS data_year,
+            CAST(stock_volume AS DOUBLE) AS stock_volume,
+            unit
+        FROM ods_fact_global_ev_stock_yearly
+        """,
+        """
+        DROP TABLE IF EXISTS dwd_battery_production_monthly
+        """,
+        """
+        CREATE TABLE dwd_battery_production_monthly
+        DISTRIBUTED BY HASH(record_id) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT
+            record_id,
+            source_id,
+            material_type,
+            CAST(data_month AS DATE) AS data_month,
+            metric_name,
+            CAST(metric_value AS DOUBLE) AS metric_value,
+            unit
+        FROM ods_fact_battery_production_monthly
+        """,
+        """
+        DROP TABLE IF EXISTS dwd_vehicle_production_province_monthly
+        """,
+        """
+        CREATE TABLE dwd_vehicle_production_province_monthly
+        DISTRIBUTED BY HASH(record_id) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT
+            record_id,
+            source_id,
+            province,
+            CAST(data_month AS DATE) AS data_month,
+            metric_name,
+            CAST(metric_value AS DOUBLE) AS metric_value,
+            unit
+        FROM ods_fact_vehicle_production_province_monthly
+        """,
+        """
+        DROP TABLE IF EXISTS dwd_charging_operator_monthly
+        """,
+        """
+        CREATE TABLE dwd_charging_operator_monthly
+        DISTRIBUTED BY HASH(record_id) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT
+            record_id,
+            source_id,
+            operator_name,
+            CAST(data_month AS DATE) AS data_month,
+            CAST(charging_volume AS DOUBLE) AS charging_volume,
+            unit
+        FROM ods_fact_charging_operator_monthly
+        """,
     ]
-
 
 def _doris_type(series: pd.Series) -> str:
     if pd.api.types.is_integer_dtype(series):

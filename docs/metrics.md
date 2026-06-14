@@ -38,6 +38,11 @@
 | 动力电池装车量 | `battery_installation_volume` | 指定维度下动力电池装车量 | `dws_battery_structure_monthly` |
 | 动力电池材料占比 | `battery_material_share` | 某材料类型装车量 / 总装车量 | `ads_battery_material_share` |
 | 动力电池车型结构 | `battery_vehicle_type_share` | 某车型类别装车量 / 总装车量 | `ads_battery_vehicle_type_share` |
+| 全球电动汽车年度销量 | `global_ev_sales_yearly` | 国家/地区年度纯电动和插混销量 | `dwd_global_ev_sales_yearly` |
+| 全球电动汽车保有量 | `global_ev_stock_yearly` | 国家/地区年度保有量 | `dwd_global_ev_stock_yearly` |
+| 动力电池产量 | `battery_production_volume` | 各材料类型动力电池月度产量 | `dwd_battery_production_monthly` |
+| 汽车分省产量 | `vehicle_production_province_volume` | 各省份所有汽车月度产量 | `dwd_vehicle_production_province_monthly` |
+| 充电设施充电量 | `charging_operator_amount` | 各运营商月度充电量 | `dwd_charging_operator_monthly` |
 
 ## 4. 指标详细口径
 
@@ -632,6 +637,151 @@ WHERE metric_name = '装车量'
   AND dimension_type = 'vehicle_type'
 GROUP BY data_month, dimension_value
 ORDER BY data_month, battery_vehicle_type_share DESC
+LIMIT 100;
+```
+
+### 4.16 全球电动汽车年度销量
+
+业务含义：
+
+国家/地区维度的电动汽车年度纯电动和插混销量。
+
+计算公式：
+
+```sql
+SUM(sales_units)
+```
+
+涉及表：
+
+- `dwd_global_ev_sales_yearly`
+
+示例 SQL：
+
+```sql
+SELECT
+  country,
+  data_year,
+  SUM(sales_units) AS global_ev_sales_yearly
+FROM dwd_global_ev_sales_yearly
+GROUP BY country, data_year
+ORDER BY global_ev_sales_yearly DESC
+LIMIT 100;
+```
+
+### 4.17 全球电动汽车保有量
+
+业务含义：
+
+国家/地区维度的年度电动汽车保有量规模。
+
+计算公式：
+
+```sql
+SUM(stock_units)
+```
+
+涉及表：
+
+- `dwd_global_ev_stock_yearly`
+
+示例 SQL：
+
+```sql
+SELECT
+  country,
+  data_year,
+  SUM(stock_units) AS global_ev_stock_yearly
+FROM dwd_global_ev_stock_yearly
+GROUP BY country, data_year
+ORDER BY global_ev_stock_yearly DESC
+LIMIT 100;
+```
+
+### 4.18 动力电池产量
+
+业务含义：
+
+指定时间、材料类型等维度下的动力电池产量。
+
+计算公式：
+
+```sql
+SUM(production_value)
+```
+
+涉及表：
+
+- `dwd_battery_production_monthly`
+
+示例 SQL：
+
+```sql
+SELECT
+  material_type,
+  data_month,
+  SUM(production_value) AS battery_production_volume
+FROM dwd_battery_production_monthly
+GROUP BY material_type, data_month
+ORDER BY battery_production_volume DESC
+LIMIT 100;
+```
+
+### 4.19 汽车分省产量
+
+业务含义：
+
+指定省份和时间的全国各省份的所有汽车产量。
+
+计算公式：
+
+```sql
+SUM(production_units)
+```
+
+涉及表：
+
+- `dwd_vehicle_production_province_monthly`
+
+示例 SQL：
+
+```sql
+SELECT
+  province,
+  data_month,
+  SUM(production_units) AS vehicle_production_province_volume
+FROM dwd_vehicle_production_province_monthly
+GROUP BY province, data_month
+ORDER BY vehicle_production_province_volume DESC
+LIMIT 100;
+```
+
+### 4.20 充电设施充电量
+
+业务含义：
+
+指定充电桩运营商在各月份的充电量。
+
+计算公式：
+
+```sql
+SUM(charging_amount)
+```
+
+涉及表：
+
+- `dwd_charging_operator_monthly`
+
+示例 SQL：
+
+```sql
+SELECT
+  operator_name,
+  data_month,
+  SUM(charging_amount) AS charging_operator_amount
+FROM dwd_charging_operator_monthly
+GROUP BY operator_name, data_month
+ORDER BY charging_operator_amount DESC
 LIMIT 100;
 ```
 

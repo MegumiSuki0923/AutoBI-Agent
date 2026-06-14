@@ -23,6 +23,18 @@
 - `ads_charging_facility_province_distribution`: 充电设施省份分布表 (标准问题：省份充电设施分布)
 - `ads_battery_material_share`: 动力电池材料占比表 (标准问题：材料类型装车量结构)
 - `ads_battery_vehicle_type_share`: 动力电池车型占比表 (标准问题：车型类别装车量结构)
+- `dim_time`: 时间维表 (包含年、季度、月等时间维度)
+- `dim_manufacturer`: 厂商维表 (包含厂商名称、品牌集团、国别)
+- `dim_vehicle_model`: 车型维表 (包含车型名称、车型大类、燃料类型)
+- `dim_province`: 省份/地区维表 (包含省份、大区、等级)
+- `dim_fuel_type`: 燃料类型维表 (包含燃料分类信息)
+- `dim_battery_material`: 电池材料维表 (包含材料分类)
+- `dim_charging_operator`: 充电桩运营商维表 (包含运营商分类)
+- `dwd_global_ev_sales_yearly`: 全球电动汽车年度销量表 (国家/地区年度纯电动和插混销量)
+- `dwd_global_ev_stock_yearly`: 全球电动汽车年度保有量表 (国家/地区年度保有量)
+- `dwd_battery_production_monthly`: 动力电池月度产量表 (各材料类型动力电池月度产量)
+- `dwd_vehicle_production_province_monthly`: 汽车分省月度产量表 (各省份所有汽车月度产量)
+- `dwd_charging_operator_monthly`: 充电桩运营商月度电量表 (各运营商月度充电量)
 
 用户问题：{question}
 

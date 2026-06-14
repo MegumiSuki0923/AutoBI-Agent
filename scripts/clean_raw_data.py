@@ -543,7 +543,472 @@ def clean_all() -> dict[str, int]:
     return result
 
 
+# ────────────────────────────── 维度表生成：额外原始文件路径 ──────────────────────────────
+
+PROVINCE_PROD_FILE = RAW_DATA_DIR / "32汽车产量统计分省（月，200204-202212，112个指标，不是新能源汽车产量，是所有汽车产量总和）.xls"
+BATTERY_PROD_MATERIAL_FILE = RAW_DATA_DIR / "14动力电池产量分材料类型（月，201901-202301，10个指标）.xls"
+CHARGING_OPERATOR_FILE = RAW_DATA_DIR / "12公共充电桩运营商充电电量（21家运营商，月，202012-202301）.xls"
+
+
+# ────────────────────────────── DIM: dim_time ──────────────────────────────
+
+def generate_dim_time() -> pd.DataFrame:
+    """
+    从所有事实表CSV中提取所有不重复的 data_month，生成时间维度表。
+
+    字段：data_month, year, quarter, month_num, month_name, is_year_end
+    """
+    print("  生成 dim_time...")
+
+    fact_files = [
+        "fact_vehicle_prod_sales_monthly.csv",
+        "fact_nev_manufacturer_monthly.csv",
+        "fact_nev_overall_monthly.csv",
+        "fact_charging_infrastructure_monthly.csv",
+        "fact_battery_installation_monthly.csv",
+    ]
+
+    all_months = set()
+    for f in fact_files:
+        csv_path = CLEANED_DIR / f
+        if csv_path.exists():
+            df = pd.read_csv(csv_path, usecols=["data_month"])
+            all_months.update(df["data_month"].dropna().unique())
+
+    month_name_map = {
+        1: "一月", 2: "二月", 3: "三月", 4: "四月",
+        5: "五月", 6: "六月", 7: "七月", 8: "八月",
+        9: "九月", 10: "十月", 11: "十一月", 12: "十二月",
+    }
+
+    dates = sorted(all_months)
+    rows = []
+    for d in dates:
+        dt = pd.Timestamp(d)
+        rows.append({
+            "data_month": d,
+            "year": dt.year,
+            "quarter": dt.quarter,
+            "month_num": dt.month,
+            "month_name": month_name_map[dt.month],
+            "is_year_end": dt.month == 12,
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 年份范围: {result['year'].min()}-{result['year'].max()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_manufacturer ──────────────────────────────
+
+# 品牌集团映射表
+_BRAND_GROUP_MAP = {
+    "特斯拉(上海)": "特斯拉", "特斯拉(上海)公司": "特斯拉", "特斯拉（上海）公司": "特斯拉",
+    "比亚迪": "比亚迪", "比亚迪汽车公司": "比亚迪", "比亚迪汽车工业公司": "比亚迪",
+    "比亚迪股份公司": "比亚迪", "比亚迪股份公司(集团)": "比亚迪",
+    "华晨宝马": "宝马", "华晨宝马汽车公司": "宝马", "宝马": "宝马",
+    "一汽丰田": "丰田", "广汽丰田": "丰田", "广汽丰田汽车公司": "丰田",
+    "一汽大众": "大众", "上汽大众": "大众",
+    "上汽通用": "通用", "上汽通用五菱": "通用",
+    "广汽本田": "本田", "广汽本田汽车公司": "本田",
+    "北京奔驰": "奔驰", "北京奔驰汽车公司": "奔驰",
+    "长城": "长城", "长城汽车股份公司": "长城", "长城汽车股份公司(集团)": "长城",
+    "长安": "长安", "重庆长安汽车股份公司": "长安", "中国长安汽车集团公司": "长安",
+    "长安福特": "福特",
+    "吉利": "吉利", "浙江吉利控股集团公司": "吉利", "浙江吉利控股集团公司(集团)": "吉利",
+    "奇瑞": "奇瑞", "奇瑞汽车股份公司": "奇瑞", "奇瑞汽车股份公司(集团)": "奇瑞",
+    "广汽乘用车": "广汽", "广汽乘用车公司": "广汽", "广州汽车集团乘用车公司": "广汽",
+    "广州汽车工业集团公司": "广汽",
+    "北汽股份": "北汽", "北汽新能源": "北汽", "北汽有限": "北汽",
+    "北京汽车股份公司": "北汽", "北京汽车集团公司": "北汽", "北京新能源汽车股份公司": "北汽",
+    "北汽蓝谷麦格纳": "北汽", "北汽蓝谷麦格纳汽车公司": "北汽",
+    "北汽(广州)": "北汽", "北汽(广州)汽车公司": "北汽",
+    "北汽新能源(常州)": "北汽", "北汽新能源汽车常州公司": "北汽",
+    "北汽(常州)汽车公司": "北汽", "北汽（常州）汽车公司": "北汽", "北汽（镇江）汽车公司": "北汽",
+    "北汽福田汽车股份公司": "北汽", "福田": "北汽",
+    "东风": "东风", "东风本田": "东风", "东风日产": "东风", "东风乘用车": "东风",
+    "东风启辰": "东风", "东风柳汽": "东风", "东风悦达": "东风", "东风股份": "东风",
+    "东风神龙": "东风", "东风裕隆": "东风",
+    "东风汽车集团股份公司": "东风", "东风汽车股份公司": "东风",
+    "东风汽车集团公司": "东风", "东风裕隆汽车公司": "东风",
+    "重庆理想": "理想", "重庆理想汽车公司": "理想", "重庆理想汽车公司(集团)": "理想",
+    "肇庆小鹏": "小鹏", "肇庆小鹏汽车公司": "小鹏",
+    "威马": "威马", "威马汽车": "威马", "威马汽车制造温州公司": "威马",
+    "浙江零跑": "零跑", "浙江零跑科技公司": "零跑",
+    "合众新能源": "哪吒", "浙江合众新能源汽车公司": "哪吒",
+    "岚图汽车": "岚图", "岚图汽车科技公司": "岚图",
+    "赛力斯汽车": "赛力斯", "赛力斯汽车公司": "赛力斯", "重庆金康新能源汽车公司": "赛力斯",
+    "飞凡科技": "飞凡", "飞凡汽车科技公司": "飞凡",
+    "江淮": "江淮", "安徽江淮汽车集团股份公司": "江淮", "安徽江淮汽车集团股份公司(集团)": "江淮",
+    "江铃股份": "江铃", "江铃控股": "江铃", "江铃新能源": "江铃", "江铃控股公司": "江铃",
+    "华晨": "华晨", "华晨汽车集团控股公司": "华晨", "华晨汽车集团控股公司(集团)": "华晨",
+    "华晨鑫源": "华晨", "华晨鑫源重庆汽车公司": "华晨",
+    "华晨新日": "华晨", "华晨新日新能源汽车公司": "华晨",
+    "华晨雷诺金杯": "华晨",
+    "中国一汽": "一汽", "中国第一汽车集团公司": "一汽", "中国第一汽车集团公司(集团)": "一汽",
+    "天津一汽": "一汽",
+    "上海股份": "上汽", "上汽通用五菱": "上汽",
+    "北京现代": "现代", "北京现代汽车公司": "现代",
+    "捷豹路虎": "捷豹路虎", "奇瑞捷豹路虎汽车公司": "捷豹路虎",
+    "大庆沃尔沃": "沃尔沃", "大庆沃尔沃汽车制造公司": "沃尔沃",
+    "长安马自达": "马自达",
+    "广汽三菱": "三菱", "广汽三菱汽车公司": "三菱",
+    "广汽菲克": "菲亚特克莱斯勒", "广汽菲亚特克莱斯勒汽车公司": "菲亚特克莱斯勒",
+    "郑州日产": "日产", "郑州日产汽车公司": "日产",
+    "神龙汽车公司": "标致雪铁龙", "东风神龙": "标致雪铁龙",
+}
+
+# 国别映射表
+_COUNTRY_MAP = {
+    "特斯拉": "美国", "福特": "美国", "通用": "美国", "菲亚特克莱斯勒": "美国",
+    "宝马": "德国", "奔驰": "德国", "大众": "德国",
+    "丰田": "日本", "本田": "日本", "日产": "日本", "马自达": "日本", "三菱": "日本",
+    "现代": "韩国",
+    "沃尔沃": "瑞典",
+    "捷豹路虎": "英国",
+    "标致雪铁龙": "法国",
+}
+
+
+def generate_dim_manufacturer() -> pd.DataFrame:
+    """
+    从 fact_vehicle_prod_sales_monthly.csv 和 fact_nev_manufacturer_monthly.csv
+    中提取所有不重复的 manufacturer_name，生成厂商维度表。
+
+    字段：manufacturer_id, manufacturer_name, brand_group, is_nev, country
+    """
+    print("  生成 dim_manufacturer...")
+
+    veh_path = CLEANED_DIR / "fact_vehicle_prod_sales_monthly.csv"
+    nev_path = CLEANED_DIR / "fact_nev_manufacturer_monthly.csv"
+
+    veh_mfrs = set()
+    nev_mfrs = set()
+
+    if veh_path.exists():
+        df = pd.read_csv(veh_path, usecols=["manufacturer_name"])
+        veh_mfrs = set(df["manufacturer_name"].dropna().unique())
+
+    if nev_path.exists():
+        df = pd.read_csv(nev_path, usecols=["manufacturer_name"])
+        nev_mfrs = set(df["manufacturer_name"].dropna().unique())
+
+    all_mfrs = sorted(veh_mfrs | nev_mfrs)
+
+    rows = []
+    for i, name in enumerate(all_mfrs, 1):
+        brand_group = _BRAND_GROUP_MAP.get(name, "其他")
+        is_nev = name in nev_mfrs
+        country = _COUNTRY_MAP.get(brand_group, "中国")
+        rows.append({
+            "manufacturer_id": f"MFR{i:06d}",
+            "manufacturer_name": name,
+            "brand_group": brand_group,
+            "is_nev": is_nev,
+            "country": country,
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 品牌集团数: {result['brand_group'].nunique()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_vehicle_model ──────────────────────────────
+
+def generate_dim_vehicle_model() -> pd.DataFrame:
+    """
+    从 fact_vehicle_prod_sales_monthly.csv 中提取所有不重复的
+    model_name + manufacturer_name 组合，生成车型维度表。
+
+    字段：model_id, model_name, manufacturer_name, vehicle_category, fuel_type
+    """
+    print("  生成 dim_vehicle_model...")
+
+    csv_path = CLEANED_DIR / "fact_vehicle_prod_sales_monthly.csv"
+    df = pd.read_csv(csv_path, usecols=["model_name", "manufacturer_name", "vehicle_category"])
+
+    # 取每个 (model_name, manufacturer_name) 组合中最常出现的 vehicle_category
+    mode_cat = (
+        df.groupby(["model_name", "manufacturer_name"])["vehicle_category"]
+        .agg(lambda x: x.mode().iloc[0] if len(x.mode()) > 0 else x.iloc[0])
+        .reset_index()
+    )
+
+    # 推断燃料类型
+    def infer_fuel_type(model_name: str) -> str:
+        if "BEV" in model_name:
+            return "纯电动"
+        elif "PHEV" in model_name:
+            return "插电式混合动力"
+        else:
+            return "传统燃油"
+
+    mode_cat = mode_cat.sort_values(["manufacturer_name", "model_name"]).reset_index(drop=True)
+
+    rows = []
+    for i, row in enumerate(mode_cat.itertuples(), 1):
+        rows.append({
+            "model_id": f"MDL{i:06d}",
+            "model_name": row.model_name,
+            "manufacturer_name": row.manufacturer_name,
+            "vehicle_category": row.vehicle_category,
+            "fuel_type": infer_fuel_type(row.model_name),
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 燃料类型分布: {result['fuel_type'].value_counts().to_dict()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_province ──────────────────────────────
+
+# 大区映射表
+_REGION_MAP = {
+    "北京": "华北", "天津": "华北", "河北": "华北", "山西": "华北", "内蒙古": "华北",
+    "辽宁": "东北", "吉林": "东北", "黑龙江": "东北",
+    "上海": "华东", "江苏": "华东", "浙江": "华东", "安徽": "华东",
+    "福建": "华东", "江西": "华东", "山东": "华东",
+    "河南": "华中", "湖北": "华中", "湖南": "华中",
+    "广东": "华南", "广西": "华南", "海南": "华南",
+    "重庆": "西南", "四川": "西南", "贵州": "西南", "云南": "西南", "西藏": "西南",
+    "陕西": "西北", "甘肃": "西北", "青海": "西北", "宁夏": "西北", "新疆": "西北",
+    "台湾": "华东", "香港": "华南", "澳门": "华南",
+}
+
+# 省份等级映射
+_TIER_MAP = {
+    "北京": "直辖市", "天津": "直辖市", "上海": "直辖市", "重庆": "直辖市",
+    "内蒙古": "自治区", "广西": "自治区", "西藏": "自治区", "宁夏": "自治区", "新疆": "自治区",
+    "香港": "特别行政区", "澳门": "特别行政区",
+}
+
+
+def generate_dim_province() -> pd.DataFrame:
+    """
+    从 fact_charging_infrastructure_monthly.csv 和 32号文件列名中
+    提取所有不重复的省份，生成省份维度表。
+
+    字段：province_code, province, region, tier
+    """
+    print("  生成 dim_province...")
+
+    provinces = set()
+
+    # 从充电设施 CSV 中提取
+    chg_path = CLEANED_DIR / "fact_charging_infrastructure_monthly.csv"
+    if chg_path.exists():
+        df = pd.read_csv(chg_path, usecols=["province"])
+        for p in df["province"].dropna().unique():
+            if p != "全国":
+                provinces.add(p)
+
+    # 从 32号文件列名中提取省份
+    if PROVINCE_PROD_FILE.exists():
+        raw = pd.read_excel(PROVINCE_PROD_FILE, header=None)
+        cols = raw.iloc[1, 1:].tolist()
+        for c in cols:
+            if isinstance(c, str):
+                parts = c.split("_")
+                if len(parts) >= 3:
+                    provinces.add(parts[2])
+
+    sorted_provinces = sorted(provinces)
+    rows = []
+    for i, prov in enumerate(sorted_provinces, 1):
+        rows.append({
+            "province_code": f"P{i:02d}",
+            "province": prov,
+            "region": _REGION_MAP.get(prov, "未知"),
+            "tier": _TIER_MAP.get(prov, "省"),
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 大区分布: {result['region'].value_counts().to_dict()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_fuel_type ──────────────────────────────
+
+# 燃料大类映射
+_FUEL_CATEGORY_MAP = {
+    "纯电动": "新能源",
+    "插电式混合动力": "新能源",
+    "燃料电池": "新能源",
+    "总计": "汇总",
+}
+
+
+def generate_dim_fuel_type() -> pd.DataFrame:
+    """
+    从 fact_nev_manufacturer_monthly.csv 和 fact_nev_overall_monthly.csv
+    中提取所有不重复的 fuel_type，生成燃料类型维度表。
+
+    字段：fuel_type_id, fuel_type, fuel_category, is_nev
+    """
+    print("  生成 dim_fuel_type...")
+
+    fuel_types = set()
+
+    for fname in ["fact_nev_manufacturer_monthly.csv", "fact_nev_overall_monthly.csv"]:
+        csv_path = CLEANED_DIR / fname
+        if csv_path.exists():
+            df = pd.read_csv(csv_path, usecols=["fuel_type"])
+            fuel_types.update(df["fuel_type"].dropna().unique())
+
+    sorted_fuels = sorted(fuel_types)
+    rows = []
+    for i, ft in enumerate(sorted_fuels, 1):
+        category = _FUEL_CATEGORY_MAP.get(ft, "传统")
+        rows.append({
+            "fuel_type_id": f"FT{i:02d}",
+            "fuel_type": ft,
+            "fuel_category": category,
+            "is_nev": category == "新能源",
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 类型: {result['fuel_type'].tolist()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_battery_material ──────────────────────────────
+
+# 材料大类映射
+_MATERIAL_CATEGORY_MAP = {
+    "三元材料": "三元系",
+    "磷酸铁锂": "磷酸铁锂系",
+    "锰酸锂": "其他",
+    "钛酸锂": "其他",
+    "合计": "汇总",
+}
+
+
+def generate_dim_battery_material() -> pd.DataFrame:
+    """
+    从 fact_battery_installation_monthly.csv（dimension_type='material_type'）
+    和 14号文件列名中提取所有不重复的材料名，生成电池材料维度表。
+
+    字段：material_id, material_name, material_category
+    """
+    print("  生成 dim_battery_material...")
+
+    materials = set()
+
+    # 从事实表 CSV 提取
+    bat_path = CLEANED_DIR / "fact_battery_installation_monthly.csv"
+    if bat_path.exists():
+        df = pd.read_csv(bat_path)
+        mat_df = df[df["dimension_type"] == "material_type"]
+        materials.update(mat_df["dimension_value"].dropna().unique())
+
+    # 从 14号文件列名中提取
+    if BATTERY_PROD_MATERIAL_FILE.exists():
+        raw = pd.read_excel(BATTERY_PROD_MATERIAL_FILE, header=None)
+        cols = raw.iloc[1, 1:].tolist()
+        for c in cols:
+            if isinstance(c, str):
+                parts = c.split("_")
+                if len(parts) >= 3:
+                    materials.add(parts[2])
+
+    sorted_materials = sorted(materials)
+    rows = []
+    for i, mat in enumerate(sorted_materials, 1):
+        rows.append({
+            "material_id": f"MAT{i:02d}",
+            "material_name": mat,
+            "material_category": _MATERIAL_CATEGORY_MAP.get(mat, "其他"),
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 材料: {result['material_name'].tolist()}")
+    return result
+
+
+# ────────────────────────────── DIM: dim_charging_operator ──────────────────────────────
+
+# 运营商类型映射
+_OPERATOR_TYPE_MAP = {
+    "特来电": "民营企业",
+    "星星充电": "民营企业",
+    "云快充": "民营企业",
+    "南方电网": "国有企业",
+    "思极星能": "国有企业",
+}
+
+
+def generate_dim_charging_operator() -> pd.DataFrame:
+    """
+    从 12号文件列名中提取运营商名称，生成充电运营商维度表。
+
+    列名格式：公共充电桩运营商充电电量_运营商名称
+
+    字段：operator_id, operator_name, operator_type
+    """
+    print("  生成 dim_charging_operator...")
+
+    operators = []
+
+    if CHARGING_OPERATOR_FILE.exists():
+        raw = pd.read_excel(CHARGING_OPERATOR_FILE, header=None)
+        cols = raw.iloc[1, 1:].tolist()
+        for c in cols:
+            if isinstance(c, str) and "_" in c:
+                name = c.split("_", 1)[1]  # 取第一个 _ 后面的部分
+                operators.append(name)
+
+    # 去重并排序
+    operators = sorted(set(operators))
+
+    rows = []
+    for i, name in enumerate(operators, 1):
+        rows.append({
+            "operator_id": f"OPR{i:02d}",
+            "operator_name": name,
+            "operator_type": _OPERATOR_TYPE_MAP.get(name, "民营企业"),
+        })
+
+    result = pd.DataFrame(rows)
+    print(f"    行数: {len(result)}, 国有: {sum(1 for r in rows if r['operator_type'] == '国有企业')}, "
+          f"民营: {sum(1 for r in rows if r['operator_type'] == '民营企业')}")
+    return result
+
+
+# ────────────────────────────── 维度表生成主函数 ──────────────────────────────
+
+def generate_all_dimensions() -> dict[str, int]:
+    """
+    执行全部维度表生成流程，将结果写入 data/cleaned/ 目录
+
+    返回 {表名: 行数} 字典
+    """
+    CLEANED_DIR.mkdir(parents=True, exist_ok=True)
+
+    dim_tables = {
+        "dim_time": generate_dim_time(),
+        "dim_manufacturer": generate_dim_manufacturer(),
+        "dim_vehicle_model": generate_dim_vehicle_model(),
+        "dim_province": generate_dim_province(),
+        "dim_fuel_type": generate_dim_fuel_type(),
+        "dim_battery_material": generate_dim_battery_material(),
+        "dim_charging_operator": generate_dim_charging_operator(),
+    }
+
+    result = {}
+    for name, df in dim_tables.items():
+        csv_path = CLEANED_DIR / f"{name}.csv"
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        result[name] = len(df)
+        print(f"  ✅ {name} → {csv_path.name} ({len(df)} 行)")
+
+    return result
+
+
 if __name__ == "__main__":
     print("开始清洗原始 Excel 数据...\n")
     counts = clean_all()
     print(f"\n清洗完成，共 {sum(counts.values())} 行数据写入 {CLEANED_DIR}")
+
+    print("\n开始生成维度表...\n")
+    dim_counts = generate_all_dimensions()
+    print(f"\n维度表生成完成，共 {sum(dim_counts.values())} 行数据写入 {CLEANED_DIR}")
