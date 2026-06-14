@@ -4,8 +4,6 @@
 
 AutoBI Agent 将汽车产业多源 Excel 数据清洗为标准化数据资产，写入 Apache Doris 数仓并建设 `ODS -> DWD -> DWS -> ADS` 分层，再通过 FastAPI、LangGraph、RAG、Text-to-SQL、SQL Guard 和 Next.js 前端，把自然语言问题转成安全 SQL、查询结果、图表建议和业务分析结论。
 
-这个项目不是一个只会调用大模型的聊天 Demo，而是一条完整的本地数据应用链路：真实数据接入、数仓分层建模、指标口径沉淀、Agent 编排、安全查询、流式执行反馈、历史会话和容器化部署。
-
 ## 当前能力
 
 - **真实汽车产业数据接入**：读取 `data/raw_data` 下的汽车产销、新能源汽车、充电设施、动力电池、全球电动车和汽车上市公司等 Excel 数据。

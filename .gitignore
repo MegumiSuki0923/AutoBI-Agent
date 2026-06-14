@@ -56,6 +56,10 @@ data/raw_data/
 
 # Temporary dev scripts
 test_parse.py
+fix_metrics.py
+test_guard.py
+test_pie.py
+test_prompt.py
 
 # Jupyter
 .ipynb_checkpoints/
@@ -70,6 +74,7 @@ test_parse.py
 
 # Local planning notes
 docs/development_plan.md
+todolist.md
 
 # Claude Code project instructions
 CLAUDE.md
