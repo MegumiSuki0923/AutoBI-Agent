@@ -107,6 +107,15 @@ class ChartService:
                 title=self._build_title(question, "结构"),
             )
 
+        if self._should_use_pie(question, rows, time_fields, numeric_fields, category_fields):
+            x_axis = time_fields[0] if time_fields else (category_fields[0] if category_fields else None)
+            return ChartSuggestion(
+                chart_type="pie",
+                x_axis=x_axis,
+                y_axes=numeric_fields,
+                title=self._build_title(question, "饼图"),
+            )
+
         if time_fields and numeric_fields and self._has_intent(question, self.TREND_KEYWORDS):
             return ChartSuggestion(
                 chart_type="line",
@@ -244,6 +253,28 @@ class ChartService:
             self._has_intent(question, self.METRIC_KEYWORDS)
             or len(numeric_fields) == 1
         )
+
+    def _should_use_pie(
+        self,
+        question: str,
+        rows: List[List[Any]],
+        time_fields: List[str],
+        numeric_fields: List[str],
+        category_fields: List[str],
+    ) -> bool:
+        if not numeric_fields:
+            return False
+        if self._has_intent(question, {"饼图", "饼状图"}):
+            return True
+        if len(rows) == 1 and len(numeric_fields) > 1 and self._has_intent(question, self.STRUCTURE_KEYWORDS):
+            return True
+        if (
+            category_fields
+            and len(numeric_fields) == 1
+            and self._has_intent(question, {"占比", "构成", "组成"})
+        ):
+            return True
+        return False
 
     def _should_use_stacked_bar(
         self,

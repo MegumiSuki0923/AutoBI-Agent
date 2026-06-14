@@ -1,34 +1,56 @@
-import pytest
-from fastapi.testclient import TestClient
+import asyncio
 
-from app.api.ask import get_ask_pipeline
+import httpx
+import pytest
+
+from app.api.ask import get_ask_service
 from app.main import app
 from app.schemas import AskResponse, ChartSuggestion, QueryResult
 from app.services.sql_guard import SQLGuard, SQLGuardError
-from frontend.streamlit_app import STANDARD_QUESTIONS
+STANDARD_QUESTIONS = [
+    "2022 年各厂商新能源汽车销量排名如何？",
+    "各省充电设施数量分布如何？",
+    "动力电池不同材料类型的装车量结构如何？",
+]
 
 
 SUPPORTED_CHART_TYPES = {"metric", "line", "bar", "stacked_bar", "pie"}
 
 
+class ASGITestClient:
+    def post(self, path, json=None):
+        async def request():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.post(path, json=json)
+
+        return asyncio.run(request())
+
+
 @pytest.fixture()
 def client():
-    app.dependency_overrides[get_ask_pipeline] = lambda: StandardQuestionPipeline()
+    async def override():
+        return StandardQuestionService()
+
+    app.dependency_overrides[get_ask_service] = override
     try:
-        yield TestClient(app)
+        yield ASGITestClient()
     finally:
         app.dependency_overrides.clear()
 
 
-class StandardQuestionPipeline:
-    def run(self, question):
+class StandardQuestionService:
+    def run(self, question, thread_id=None):
         chart_type = "pie" if "电池" in question or "装车" in question else "bar"
         x_axis = "battery_material" if chart_type == "pie" else "name"
         y_axis = "total_value"
 
         return AskResponse(
             query=question,
-            sql="SELECT name, SUM(value) AS total_value FROM fact_nev_manufacturer_monthly GROUP BY name LIMIT 100",
+            sql="SELECT manufacturer_name, total_sales_units AS total_value FROM ads_nev_manufacturer_sales_rank LIMIT 100",
             result=QueryResult(
                 columns=[x_axis, y_axis],
                 rows=[["样例分类", 100.0]],
@@ -86,24 +108,24 @@ def test_representative_standard_questions_use_expected_chart_type(
     "safe_sql",
     [
         """
-        SELECT manufacturer_name, SUM(sales_current_units) AS total_sales
-        FROM fact_nev_manufacturer_monthly
-        GROUP BY manufacturer_name
-        ORDER BY total_sales DESC
+        SELECT manufacturer_name, total_sales_units
+        FROM ads_nev_manufacturer_sales_rank
+        ORDER BY sales_rank
         """,
         """
-        SELECT month, nev_penetration_rate
-        FROM fact_nev_overall_monthly
-        ORDER BY month
+        SELECT data_month, penetration_rate
+        FROM ads_nev_penetration_trend
+        ORDER BY data_month
         LIMIT 12
         """,
         """
         WITH battery AS (
-            SELECT battery_type, SUM(installation_gwh) AS total_gwh
-            FROM fact_battery_installation_monthly
-            GROUP BY battery_type
+            SELECT dimension_value, SUM(metric_value) AS total_gwh
+            FROM dws_battery_structure_monthly
+            WHERE dimension_type = 'material_type'
+            GROUP BY dimension_value
         )
-        SELECT battery_type, total_gwh
+        SELECT dimension_value, total_gwh
         FROM battery
         ORDER BY total_gwh DESC
         """,
@@ -119,11 +141,11 @@ def test_safe_standard_question_sql_passes_guard(safe_sql):
 @pytest.mark.parametrize(
     "unsafe_sql",
     [
-        "DROP TABLE fact_nev_manufacturer_monthly",
-        "DELETE FROM fact_nev_manufacturer_monthly WHERE manufacturer_name = 'test'",
+        "DROP TABLE ads_nev_manufacturer_sales_rank",
+        "DELETE FROM ads_nev_manufacturer_sales_rank WHERE manufacturer_name = 'test'",
         "SELECT * FROM user_credentials",
-        "SELECT * FROM fact_nev_manufacturer_monthly; DROP TABLE dim_data_source;",
-        "COPY fact_nev_manufacturer_monthly TO '/tmp/export.csv'",
+        "SELECT * FROM ads_nev_manufacturer_sales_rank; DROP TABLE ads_nev_manufacturer_sales_rank;",
+        "SELECT * INTO OUTFILE '/tmp/export.csv' FROM ads_nev_manufacturer_sales_rank",
     ],
 )
 def test_unsafe_sql_is_rejected_by_guard(unsafe_sql):

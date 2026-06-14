@@ -1,111 +1,93 @@
-import duckdb
+from __future__ import annotations
 
 from app.services.history_service import HistoryService
+from app.services.sql_executor import DorisConfig
 
 
-def test_history_service_creates_query_history_table(tmp_path):
-    db_path = tmp_path / "history.duckdb"
+class FakeCursor:
+    def __init__(self):
+        self.statements: list[str] = []
+        self.params: list[tuple[object, ...] | None] = []
+        self.max_id = 0
+        self.inserted: list[tuple[object, ...]] = []
 
-    HistoryService(db_path=db_path)
+    def __enter__(self):
+        return self
 
-    with duckdb.connect(str(db_path), read_only=True) as conn:
-        table_names = {
-            row[0]
-            for row in conn.execute("SHOW TABLES").fetchall()
-        }
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
-    assert "query_history" in table_names
+    def execute(self, sql, params=None):
+        self.statements.append(str(sql))
+        self.params.append(params)
+        normalized = " ".join(str(sql).lower().split())
+        if normalized.startswith("insert into query_history"):
+            self.max_id = int(params[0])
+            self.inserted.append(params)
+
+    def fetchone(self):
+        return (self.max_id,)
 
 
-def test_record_success_saves_query_metadata(tmp_path):
-    db_path = tmp_path / "history.duckdb"
-    service = HistoryService(db_path=db_path)
+class FakeConnection:
+    def __init__(self, cursor: FakeCursor):
+        self._cursor = cursor
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        pass
+
+
+def test_history_service_creates_doris_query_history_table(monkeypatch):
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    monkeypatch.setattr("app.services.history_service._pymysql_connect", lambda **kwargs: connection)
+
+    HistoryService(config=DorisConfig())
+
+    ddl = "\n".join(cursor.statements).lower()
+    assert "create table if not exists query_history" in ddl
+    assert "engine=olap" in ddl
+    assert connection.committed is True
+
+
+def test_record_success_saves_query_metadata_to_doris(monkeypatch):
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    monkeypatch.setattr("app.services.history_service._pymysql_connect", lambda **kwargs: connection)
+    service = HistoryService(config=DorisConfig())
 
     record_id = service.record_success(
         question="2022 年各厂商新能源汽车销量排名如何？",
-        sql="SELECT brand, SUM(sales) AS total_sales FROM fact_nev_manufacturer_monthly GROUP BY brand LIMIT 5",
+        sql="SELECT manufacturer_name FROM ads_nev_manufacturer_sales_rank LIMIT 5",
         row_count=5,
         chart_type="bar",
         execution_time_ms=123.45,
         analysis="比亚迪销量领先，特斯拉位列第二。",
     )
 
-    with duckdb.connect(str(db_path), read_only=True) as conn:
-        row = conn.execute(
-            """
-            SELECT
-                id,
-                created_at,
-                question,
-                sql,
-                success,
-                error_message,
-                row_count,
-                chart_type,
-                execution_time_ms,
-                analysis
-            FROM query_history
-            """
-        ).fetchone()
-
     assert record_id == 1
-    assert row[0] == 1
-    assert row[1] is not None
-    assert row[2] == "2022 年各厂商新能源汽车销量排名如何？"
-    assert row[3].startswith("SELECT brand")
-    assert row[4] is True
-    assert row[5] is None
-    assert row[6] == 5
-    assert row[7] == "bar"
-    assert row[8] == 123.45
-    assert row[9] == "比亚迪销量领先，特斯拉位列第二。"
+    assert cursor.inserted[-1][0] == 1
+    assert cursor.inserted[-1][3].startswith("SELECT manufacturer_name")
+    assert cursor.inserted[-1][4] is True
+    assert cursor.inserted[-1][7] == "bar"
 
 
-def test_record_failure_saves_error_reason(tmp_path):
-    db_path = tmp_path / "history.duckdb"
-    service = HistoryService(db_path=db_path)
-
-    record_id = service.record_failure(
-        question="删除所有数据",
-        error_message="Only SELECT statements are allowed",
-        sql="DELETE FROM fact_nev_manufacturer_monthly",
-        execution_time_ms=8.9,
-    )
-
-    with duckdb.connect(str(db_path), read_only=True) as conn:
-        row = conn.execute(
-            """
-            SELECT
-                id,
-                question,
-                sql,
-                success,
-                error_message,
-                row_count,
-                chart_type,
-                execution_time_ms,
-                analysis
-            FROM query_history
-            """
-        ).fetchone()
-
-    assert record_id == 1
-    assert row == (
-        1,
-        "删除所有数据",
-        "DELETE FROM fact_nev_manufacturer_monthly",
-        False,
-        "Only SELECT statements are allowed",
-        0,
-        None,
-        8.9,
-        None,
-    )
-
-
-def test_history_ids_auto_increment(tmp_path):
-    db_path = tmp_path / "history.duckdb"
-    service = HistoryService(db_path=db_path)
+def test_history_ids_auto_increment_in_application_for_doris(monkeypatch):
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    monkeypatch.setattr("app.services.history_service._pymysql_connect", lambda **kwargs: connection)
+    service = HistoryService(config=DorisConfig())
 
     first_id = service.record_failure(
         question="错误问题 1",
@@ -118,23 +100,3 @@ def test_history_ids_auto_increment(tmp_path):
 
     assert first_id == 1
     assert second_id == 2
-
-
-def test_memory_database_keeps_schema_for_service_lifetime():
-    service = HistoryService(db_path=":memory:")
-
-    success_id = service.record_success(
-        question="查询销量",
-        sql="SELECT 1",
-        row_count=1,
-        chart_type="metric",
-        execution_time_ms=1.2,
-        analysis="返回 1 行。",
-    )
-    failure_id = service.record_failure(
-        question="删除数据",
-        error_message="Only SELECT statements are allowed",
-    )
-
-    assert success_id == 1
-    assert failure_id == 2

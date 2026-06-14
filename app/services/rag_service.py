@@ -138,3 +138,30 @@ class RAGService:
 
         # 返回前 limit 个 Chunk
         return [chunk for _, chunk in scored_chunks[:limit]]
+
+    def retrieve_by_tables(self, table_names: List[str]) -> List[Dict[str, Any]]:
+        """
+        根据指定的表名列表，精准提取对应的表结构文档（Schema）以及所有相关的指标口径（Metrics）。
+        不再算分，只做精准匹配。
+        """
+        if not table_names:
+            return []
+
+        matched_chunks = []
+        for chunk in self.chunks:
+            title = chunk["title"]
+            source = chunk.get("source", "")
+
+            # 如果是数据字典(表结构)，则必须命中传入的表名
+            if "data_dictionary" in source:
+                if any(t_name in title for t_name in table_names):
+                    matched_chunks.append(chunk)
+
+            # 如果是指标口径(metrics.md)，因为可能没在标题写表名，
+            # 我们可以简单地看正文是否提及了被选中的表，如果有就包含进来。
+            elif "metrics" in source:
+                content = chunk["content"]
+                if any(t_name in content for t_name in table_names):
+                    matched_chunks.append(chunk)
+
+        return matched_chunks

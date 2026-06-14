@@ -1,48 +1,63 @@
-import duckdb
-from typing import List, Any, Tuple
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+from typing import Any
+
+
+@dataclass(frozen=True)
+class DorisConfig:
+    host: str = "127.0.0.1"
+    query_port: int = 9030
+    user: str = "root"
+    password: str = ""
+    database: str = "autobi"
+
+    @classmethod
+    def from_env(cls) -> "DorisConfig":
+        return cls(
+            host=os.getenv("DORIS_HOST", cls.host),
+            query_port=int(os.getenv("DORIS_QUERY_PORT", str(cls.query_port))),
+            user=os.getenv("DORIS_USER", cls.user),
+            password=os.getenv("DORIS_PASSWORD", cls.password),
+            database=os.getenv("DORIS_DATABASE", cls.database),
+        )
+
 
 class SQLExecutor:
     """
-    DuckDB SQL 执行器，负责在只读模式下安全地运行 SQL 查询。
+    Doris SQL 执行器，通过 Doris FE 的 MySQL 协议运行经 SQLGuard 校验后的只读查询。
     """
-    def __init__(self, db_path: str = "data/autobi.duckdb"):
-        self.db_path = db_path
 
-    def execute(self, sql: str) -> Tuple[List[str], List[List[Any]]]:
+    def __init__(self, config: DorisConfig | None = None):
+        self.config = config or DorisConfig.from_env()
+
+    def execute(self, sql: str) -> tuple[list[str], list[list[Any]]]:
         """
         执行一条 SQL 查询语句。
-
-        参数:
-            sql: 待执行的 SQL 查询字符串。
 
         返回:
             一个元组 (columns, rows):
                 - columns: 包含字段名（表头）的列表。
                 - rows: 包含每一行数据的二维列表。
-
-        异常:
-            duckdb.Error: 当 SQL 语法错误或执行失败时抛出。
         """
-        # 内存数据库（:memory:）不能以只读模式启动；对于物理数据库，使用只读模式以支持并发访问并防止文件锁定
-        read_only = self.db_path != ":memory:"
-        conn = duckdb.connect(self.db_path, read_only=read_only)
-        try:
-            cursor = conn.cursor()
-            cursor.execute(sql)
+        with _pymysql_connect(
+            host=self.config.host,
+            port=self.config.query_port,
+            user=self.config.user,
+            password=self.config.password,
+            database=self.config.database,
+            charset="utf8mb4",
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql)
+                columns = [desc[0] for desc in cursor.description or []]
+                rows = [list(row) for row in cursor.fetchall()]
 
-            # 提取字段名称
-            if cursor.description:
-                columns = [desc[0] for desc in cursor.description]
-            else:
-                columns = []
+        return columns, rows
 
-            # 提取所有行数据，并将 tuple 转换为标准的 list 结构以契合 Pydantic 模型
-            rows = cursor.fetchall()
-            rows_list = [list(row) for row in rows]
 
-            return columns, rows_list
-        except Exception as e:
-            # 向上层抛出，以便上游接口能捕获错误并将其包装到 JSON 响应的 error_message 中
-            raise e
-        finally:
-            conn.close()
+def _pymysql_connect(**kwargs):
+    import pymysql
+
+    return pymysql.connect(**kwargs)

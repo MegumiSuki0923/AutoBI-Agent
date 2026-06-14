@@ -10,12 +10,22 @@ from sqlglot.errors import ParseError
 
 DEFAULT_ALLOWED_TABLES = frozenset(
     {
-        "dim_data_source",
-        "fact_vehicle_prod_sales_monthly",
-        "fact_nev_manufacturer_monthly",
-        "fact_nev_overall_monthly",
-        "fact_charging_infrastructure_monthly",
-        "fact_battery_installation_monthly",
+        "dwd_vehicle_prod_sales_monthly",
+        "dwd_nev_manufacturer_monthly",
+        "dwd_nev_overall_monthly",
+        "dwd_charging_infrastructure_monthly",
+        "dwd_battery_installation_monthly",
+        "dws_vehicle_sales_monthly",
+        "dws_nev_manufacturer_sales_monthly",
+        "dws_nev_market_monthly",
+        "dws_charging_province_monthly",
+        "dws_battery_structure_monthly",
+        "ads_nev_manufacturer_sales_rank",
+        "ads_nev_penetration_trend",
+        "ads_vehicle_model_sales_rank",
+        "ads_charging_facility_province_distribution",
+        "ads_battery_material_share",
+        "ads_battery_vehicle_type_share",
     }
 )
 
@@ -37,7 +47,7 @@ class SQLGuard:
 
     allowed_tables: Iterable[str] = field(default_factory=lambda: DEFAULT_ALLOWED_TABLES)
     default_limit: int = 100
-    dialect: str = "duckdb"
+    dialect: str = "mysql"
 
     def __post_init__(self) -> None:
         if self.default_limit <= 0:

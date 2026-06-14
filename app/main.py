@@ -2,13 +2,14 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.ask import router as ask_router
+from app.api.history import router as history_router
 
 app = FastAPI(
     title="AutoBI Agent API",
     description=(
         "## AutoBI 智能问数助手 - API 骨架与交互文档\n\n"
         "本项目是一个面向汽车产业多源数据（品牌产销、新能源渗透率、充电基础设施、动力电池等）的自然语言智能问数体原型。\n"
-        "当前 `/api/ask` 已接入 RAG、Text-to-SQL、SQL 安全校验、DuckDB 查询、图表推荐、分析总结和历史记录链路。\n\n"
+        "当前 `/api/ask` 已接入 LangGraph 编排、RAG、Text-to-SQL、SQL 安全校验、Doris 数仓查询、图表推荐、分析总结和历史记录链路。\n\n"
         "### 主要功能：\n"
         "* **智能问数 (`/api/ask`)**：输入关于汽车销量、电池、充电桩的提问，输出 SQL、数据表格、分析结论和可视化图表推荐。"
     ),
@@ -28,6 +29,7 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(ask_router, prefix="/api", tags=["智能问数"])
+app.include_router(history_router, prefix="/api/history", tags=["历史记录"])
 
 @app.get("/", tags=["服务检查"])
 async def root():

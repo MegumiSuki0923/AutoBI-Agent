@@ -18,7 +18,7 @@
 http://127.0.0.1:8000/docs
 ```
 
-重要说明：当前 `/api/ask` 已从 Mock 仿真返回改为真实链路编排。接口会检索数据字典和指标口径，调用 Text-to-SQL 生成 SQL，通过 SQL Guard 做执行前安全校验，查询 `data/autobi.duckdb`，再生成图表建议、分析总结并写入历史记录。
+重要说明：当前 `/api/ask` 已从 Mock 仿真返回改为 LangGraph 问数编排。接口会检索数据字典和指标口径，调用 Text-to-SQL 生成 SQL，通过 SQL Guard 做执行前安全校验，查询 Doris 数仓，再生成图表建议、分析总结、执行步骤和历史记录。
 
 ## 2. 服务边界
 
@@ -26,20 +26,21 @@ http://127.0.0.1:8000/docs
 Streamlit 前端
   -> POST /api/ask
   -> FastAPI 路由
-  -> AskPipeline
+  -> AskService
+  -> AskGraph (LangGraph StateGraph)
   -> RAG 检索数据字典和指标口径
   -> TextToSQLService 生成 SQL
   -> SQLGuard 校验并补充 LIMIT
-  -> SQLExecutor 执行 DuckDB 查询
+  -> SQLExecutor 执行 Doris 查询
   -> ChartService 推荐图表
   -> AnalysisService 生成分析总结
   -> HistoryService 记录成功或失败日志
   -> 返回 AskResponse
 ```
 
-测试环境通过 FastAPI dependency override 替换 `AskPipeline` 或其内部服务，避免单元测试真实调用外部 LLM。
+测试环境通过 FastAPI dependency override 替换 `AskService` 或其内部服务，避免单元测试真实调用外部 LLM。
 
-当前真实链路（混合路由）：
+当前真实链路（LangGraph 条件路由）：
 
 ```text
 POST /api/ask
@@ -51,10 +52,11 @@ POST /api/ask
        │
        └─ 若大模型判定为数据问题 (is_data_query = true)：
             ├─ SQLGuard 校验 SQL 并补充默认 LIMIT 100。
-            ├─ SQLExecutor 执行 DuckDB 数据库查询。
+            ├─ SQLExecutor 执行 Doris 数据库查询。
             ├─ ChartService 基于字段和问题意图进行图表推荐（已修复将 monthly_sales 误判为时间轴的 Bug）。
             ├─ AnalysisService 基于数据生成核心结论、数据依据和行动建议。
             └─ HistoryService 记录成功并返回完整 AskResponse。
+  -> 3. 所有已执行节点都会写入 execution_steps，供后续前端展示 Agent 运行链路。
 ```
 
 ## 3. 接口清单
@@ -115,6 +117,7 @@ POST /api/ask
 | `success` | `boolean` | 本次请求是否成功 |
 | `error_message` | `string | null` | 失败原因 |
 | `execution_time_ms` | `number` | 后端链路耗时，单位毫秒 |
+| `execution_steps` | `ExecutionStep[]` | LangGraph 已执行节点列表 |
 
 `QueryResult`：
 
@@ -132,30 +135,44 @@ POST /api/ask
 | `y_axes` | `string[] | null` | 推荐纵轴字段列表 |
 | `title` | `string | null` | 图表标题 |
 
+`ExecutionStep`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | `string` | 执行步骤名称，如 `generate_sql` |
+| `status` | `string` | 步骤状态，如 `success` 或 `failed` |
+| `message` | `string` | 步骤说明 |
+| `elapsed_ms` | `number` | 步骤耗时，单位毫秒 |
+
 ### 5.4 成功响应示例
 
 ```json
 {
   "query": "动力电池不同材料类型的装车量结构如何？",
-  "sql": "SELECT dimension_value, SUM(metric_value) AS total_capacity FROM fact_battery_installation_monthly WHERE dimension_type = 'material_type' AND metric_name = '装车量' GROUP BY dimension_value ORDER BY total_capacity DESC LIMIT 100",
+  "sql": "SELECT material_type, install_capacity_gwh, share_percent FROM ads_battery_material_share ORDER BY install_capacity_gwh DESC LIMIT 100",
   "result": {
-    "columns": ["dimension_value", "total_capacity"],
+    "columns": ["material_type", "install_capacity_gwh", "share_percent"],
     "rows": [
-      ["磷酸铁锂", 183.8],
-      ["三元锂", 110.4],
-      ["其他", 0.6]
+      ["磷酸铁锂", 183.8, 62.4],
+      ["三元锂", 110.4, 37.4],
+      ["其他", 0.6, 0.2]
     ]
   },
   "analysis": "动力电池装车量数据显示，磷酸铁锂电池与三元锂电池依然占据市场绝对统治地位...",
   "chart_suggestion": {
     "chart_type": "pie",
-    "x_axis": "dimension_value",
-    "y_axes": ["total_capacity"],
+    "x_axis": "material_type",
+    "y_axes": ["install_capacity_gwh"],
     "title": "动力电池材料装车量结构占比"
   },
   "success": true,
   "error_message": null,
-  "execution_time_ms": 55.21
+  "execution_time_ms": 55.21,
+  "execution_steps": [
+    {"name": "intent_check", "status": "success", "message": "需要进入数据问数链路", "elapsed_ms": 0.03},
+    {"name": "generate_sql", "status": "success", "message": "已生成候选 SQL", "elapsed_ms": 24.18},
+    {"name": "execute_sql", "status": "success", "message": "查询完成，返回 3 行", "elapsed_ms": 8.92}
+  ]
 }
 ```
 
@@ -188,7 +205,12 @@ POST /api/ask
   "chart_suggestion": null,
   "success": false,
   "error_message": "Only SELECT statements are allowed",
-  "execution_time_ms": 8.9
+  "execution_time_ms": 8.9,
+  "execution_steps": [
+    {"name": "intent_check", "status": "success", "message": "需要进入数据问数链路", "elapsed_ms": 0.02},
+    {"name": "guard_sql", "status": "failed", "message": "Only SELECT statements are allowed", "elapsed_ms": 0.61},
+    {"name": "record_failure", "status": "success", "message": "已写入失败历史记录", "elapsed_ms": 1.4}
+  ]
 }
 ```
 
@@ -219,12 +241,17 @@ SQL 安全由两层组成：
 当前白名单表：
 
 ```text
-dim_data_source
-fact_vehicle_prod_sales_monthly
-fact_nev_manufacturer_monthly
-fact_nev_overall_monthly
-fact_charging_infrastructure_monthly
-fact_battery_installation_monthly
+ads_nev_manufacturer_sales_rank
+ads_nev_penetration_trend
+ads_vehicle_model_sales_rank
+ads_charging_facility_province_distribution
+ads_battery_material_share
+ads_battery_vehicle_type_share
+dws_vehicle_sales_monthly
+dws_nev_manufacturer_sales_monthly
+dws_nev_market_monthly
+dws_charging_province_monthly
+dws_battery_structure_monthly
 ```
 
 ## 8. 历史记录

@@ -6,14 +6,14 @@
 
 | 模板文件 | 使用服务 | 主要用途 | 输出格式 |
 | --- | --- | --- | --- |
-| `app/prompts/text_to_sql_prompt.md` | `TextToSQLService` | 识别数据/非数据查询意图，生成 DuckDB 只读 SQL 或生成对话回复 | JSON：`is_data_query`, `sql`, `reason`, `chat_reply` |
+| `app/prompts/text_to_sql_prompt.md` | `TextToSQLService` | 识别数据/非数据查询意图，生成 Doris 只读 SQL 或生成对话回复 | JSON：`is_data_query`, `sql`, `reason`, `chat_reply` |
 | `app/prompts/analysis_prompt.md` | `AnalysisService` | 根据问题、SQL 和查询结果生成 BI 分析总结 | JSON：`core_conclusion`, `data_evidence`, `action_suggestions` |
 
 ## 2. Text-to-SQL Prompt
 
 ### 2.1 适用场景
 
-当用户输入汽车产业相关自然语言问题时，Text-to-SQL Prompt 负责把问题翻译成可在 DuckDB 中执行的 SQL。该 Prompt 不直接访问数据库，只负责生成 SQL 和解释。
+当用户输入汽车产业相关自然语言问题时，Text-to-SQL Prompt 负责把问题翻译成可在 Doris 中执行的 SQL。该 Prompt 不直接访问数据库，只负责生成 SQL 和解释。
 
 ### 2.2 输入变量
 

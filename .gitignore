@@ -51,6 +51,9 @@ data/raw_data/
 # Claude Code local settings
 .claude/
 
+# Local agent/tool state
+.antigravitycli/
+
 # Temporary dev scripts
 test_parse.py
 

@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文档定义 AutoBI Agent MVP 阶段使用的汽车产业核心指标，包括指标含义、计算公式、涉及数据表、适用场景和示例 SQL。
+本文档定义 AutoBI Agent Doris 数仓阶段使用的汽车产业核心指标，包括指标含义、计算公式、涉及数据表、适用场景和示例 SQL。
 
 该文档将用于：
 
@@ -19,28 +19,96 @@
 - 时间粒度默认按月，字段统一使用 `data_month`。
 - 新能源渗透率等跨表指标必须明确分子、分母和时间对齐方式。
 - 对于原始宽表中的多指标列，清洗后优先转成长表的 `metric_name` + `metric_value` 结构。
+- Text-to-SQL 默认优先查询 ADS 应用层；ADS 无法覆盖时再查询 DWS 汇总层；默认不直接查询 ODS/DWD。
 
 ## 3. 核心指标清单
 
 | 指标名称 | 英文字段 / 别名 | 业务含义 | 主要数据表 |
 | --- | --- | --- | --- |
-| 汽车销量 | `vehicle_sales_volume` | 指定月份、厂商或车型的汽车销量 | `fact_vehicle_prod_sales_monthly` |
-| 汽车产量 | `vehicle_production_volume` | 指定月份、厂商或车型的汽车产量 | `fact_vehicle_prod_sales_monthly` |
-| 汽车产销比 | `vehicle_production_sales_ratio` | 汽车产量 / 汽车销量 | `fact_vehicle_prod_sales_monthly` |
-| 厂商销量排名 | `manufacturer_sales_rank` | 按销量对厂商排序 | `fact_nev_manufacturer_monthly` |
-| 车型销量排名 | `model_sales_rank` | 按销量对车型排序 | `fact_vehicle_prod_sales_monthly` |
-| 新能源汽车销量 | `nev_sales_volume` | 新能源汽车当期销量 | `fact_nev_overall_monthly`, `fact_nev_manufacturer_monthly` |
-| 新能源汽车产量 | `nev_production_volume` | 新能源汽车当期产量 | `fact_nev_overall_monthly`, `fact_nev_manufacturer_monthly` |
-| 新能源渗透率 | `nev_penetration_rate` | 新能源汽车销量 / 汽车总销量 | `fact_nev_overall_monthly`, `fact_vehicle_prod_sales_monthly` |
-| 纯电销量占比 | `bev_sales_share` | 纯电动销量 / 新能源总销量 | `fact_nev_overall_monthly` |
-| 插混销量占比 | `phev_sales_share` | 插电式混合动力销量 / 新能源总销量 | `fact_nev_overall_monthly` |
-| 充电设施数量 | `charging_facility_count` | 指定省份或月份的充电设施数量 | `fact_charging_infrastructure_monthly` |
-| 充电设施环比增速 | `charging_facility_mom_rate` | 本月充电设施数量 / 上月数量 - 1 | `fact_charging_infrastructure_monthly` |
-| 动力电池装车量 | `battery_installation_volume` | 指定维度下动力电池装车量 | `fact_battery_installation_monthly` |
-| 动力电池材料占比 | `battery_material_share` | 某材料类型装车量 / 总装车量 | `fact_battery_installation_monthly` |
-| 动力电池车型结构 | `battery_vehicle_type_share` | 某车型类别装车量 / 总装车量 | `fact_battery_installation_monthly` |
+| 汽车销量 | `vehicle_sales_volume` | 指定月份、厂商或车型的汽车销量 | `dws_vehicle_sales_monthly`, `ads_vehicle_model_sales_rank` |
+| 汽车产量 | `vehicle_production_volume` | 指定月份、厂商或车型的汽车产量 | `dws_vehicle_sales_monthly` |
+| 汽车产销比 | `vehicle_production_sales_ratio` | 汽车产量 / 汽车销量 | `dws_vehicle_sales_monthly` |
+| 厂商销量排名 | `manufacturer_sales_rank` | 按销量对厂商排序 | `ads_nev_manufacturer_sales_rank` |
+| 车型销量排名 | `model_sales_rank` | 按销量对车型排序 | `ads_vehicle_model_sales_rank` |
+| 新能源汽车销量 | `nev_sales_volume` | 新能源汽车当期销量 | `dwd_nev_overall_monthly`, `dws_nev_manufacturer_sales_monthly` |
+| 新能源汽车产量 | `nev_production_volume` | 新能源汽车当期产量 | `dwd_nev_overall_monthly`, `dws_nev_manufacturer_sales_monthly` |
+| 新能源渗透率 | `nev_penetration_rate` | 新能源汽车销量 / 汽车总销量 | `ads_nev_penetration_trend` |
+| 充电设施数量 | `charging_facility_count` | 指定省份或月份的充电设施数量 | `ads_charging_facility_province_distribution`, `dws_charging_province_monthly` |
+| 充电设施环比增速 | `charging_facility_mom_rate` | 本月充电设施数量 / 上月数量 - 1 | `dws_charging_province_monthly` |
+| 动力电池装车量 | `battery_installation_volume` | 指定维度下动力电池装车量 | `dws_battery_structure_monthly` |
+| 动力电池材料占比 | `battery_material_share` | 某材料类型装车量 / 总装车量 | `ads_battery_material_share` |
+| 动力电池车型结构 | `battery_vehicle_type_share` | 某车型类别装车量 / 总装车量 | `ads_battery_vehicle_type_share` |
 
 ## 4. 指标详细口径
+
+### 4.0 Doris ADS/DWS 标准问题示例 SQL
+
+厂商新能源销量排名：
+
+```sql
+SELECT
+  manufacturer_name,
+  total_sales_units,
+  sales_rank
+FROM ads_nev_manufacturer_sales_rank
+WHERE stat_year = 2022
+ORDER BY sales_rank
+LIMIT 5;
+```
+
+新能源渗透率趋势：
+
+```sql
+SELECT
+  data_month,
+  nev_sales_units,
+  total_vehicle_sales_units,
+  penetration_rate
+FROM ads_nev_penetration_trend
+ORDER BY data_month
+LIMIT 100;
+```
+
+车型销量 Top N：
+
+```sql
+SELECT
+  manufacturer_name,
+  model_name,
+  total_sales_units,
+  sales_rank
+FROM ads_vehicle_model_sales_rank
+WHERE stat_year = 2022
+ORDER BY sales_rank
+LIMIT 5;
+```
+
+充电设施省份分布：
+
+```sql
+SELECT
+  province,
+  metric_value,
+  unit
+FROM ads_charging_facility_province_distribution
+WHERE metric_name = '公共充电桩数量'
+ORDER BY metric_value DESC
+LIMIT 20;
+```
+
+动力电池材料结构：
+
+```sql
+SELECT
+  material_type,
+  metric_value,
+  share,
+  unit
+FROM ads_battery_material_share
+WHERE metric_name = '装车量'
+ORDER BY metric_value DESC
+LIMIT 20;
+```
 
 ### 4.1 汽车销量
 
@@ -51,27 +119,27 @@
 计算公式：
 
 ```sql
-SUM(current_units)
+SUM(sales_units)
 ```
 
 过滤条件：
 
 ```sql
-stat_type = '销量'
+1=1
 ```
 
 涉及表：
 
-- `fact_vehicle_prod_sales_monthly`
+- `dws_vehicle_sales_monthly`
 
 示例 SQL：
 
 ```sql
 SELECT
   model_name,
-  SUM(current_units) AS vehicle_sales_volume
-FROM fact_vehicle_prod_sales_monthly
-WHERE stat_type = '销量'
+  SUM(sales_units) AS vehicle_sales_volume
+FROM dws_vehicle_sales_monthly
+WHERE 1=1
   AND CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
 GROUP BY model_name
 ORDER BY vehicle_sales_volume DESC
@@ -87,27 +155,27 @@ LIMIT 20;
 计算公式：
 
 ```sql
-SUM(current_units)
+SUM(sales_units)
 ```
 
 过滤条件：
 
 ```sql
-stat_type = '产量'
+1=1
 ```
 
 涉及表：
 
-- `fact_vehicle_prod_sales_monthly`
+- `dws_vehicle_sales_monthly`
 
 示例 SQL：
 
 ```sql
 SELECT
   data_month,
-  SUM(current_units) AS vehicle_production_volume
-FROM fact_vehicle_prod_sales_monthly
-WHERE stat_type = '产量'
+  SUM(sales_units) AS vehicle_production_volume
+FROM dws_vehicle_sales_monthly
+WHERE 1=1
 GROUP BY data_month
 ORDER BY data_month
 LIMIT 100;
@@ -122,22 +190,22 @@ LIMIT 100;
 计算公式：
 
 ```sql
-SUM(CASE WHEN stat_type = '产量' THEN current_units ELSE 0 END)
-/ NULLIF(SUM(CASE WHEN stat_type = '销量' THEN current_units ELSE 0 END), 0)
+SUM(CASE WHEN 1=1 THEN sales_units ELSE 0 END)
+/ NULLIF(SUM(CASE WHEN 1=1 THEN sales_units ELSE 0 END), 0)
 ```
 
 涉及表：
 
-- `fact_vehicle_prod_sales_monthly`
+- `dws_vehicle_sales_monthly`
 
 示例 SQL：
 
 ```sql
 SELECT
   data_month,
-  SUM(CASE WHEN stat_type = '产量' THEN current_units ELSE 0 END)
-    / NULLIF(SUM(CASE WHEN stat_type = '销量' THEN current_units ELSE 0 END), 0) AS vehicle_production_sales_ratio
-FROM fact_vehicle_prod_sales_monthly
+  SUM(CASE WHEN 1=1 THEN sales_units ELSE 0 END)
+    / NULLIF(SUM(CASE WHEN 1=1 THEN sales_units ELSE 0 END), 0) AS vehicle_production_sales_ratio
+FROM dws_vehicle_sales_monthly
 GROUP BY data_month
 ORDER BY data_month
 LIMIT 100;
@@ -157,7 +225,7 @@ SUM(sales_current_units)
 
 涉及表：
 
-- `fact_nev_manufacturer_monthly`
+- `dws_nev_manufacturer_sales_monthly`
 
 示例 SQL：
 
@@ -165,7 +233,7 @@ SUM(sales_current_units)
 SELECT
   manufacturer_name,
   SUM(sales_current_units) AS nev_sales_volume
-FROM fact_nev_manufacturer_monthly
+FROM dws_nev_manufacturer_sales_monthly
 WHERE CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
   AND vehicle_category = '总计'
 GROUP BY manufacturer_name
@@ -182,27 +250,27 @@ LIMIT 20;
 计算公式：
 
 ```sql
-SUM(current_units)
+SUM(sales_units)
 ```
 
 过滤条件：
 
 ```sql
-stat_type = '销量'
+1=1
 ```
 
 涉及表：
 
-- `fact_vehicle_prod_sales_monthly`
+- `dws_vehicle_sales_monthly`
 
 示例 SQL：
 
 ```sql
 SELECT
   model_name,
-  SUM(current_units) AS model_sales_volume
-FROM fact_vehicle_prod_sales_monthly
-WHERE stat_type = '销量'
+  SUM(sales_units) AS model_sales_volume
+FROM dws_vehicle_sales_monthly
+WHERE 1=1
   AND CAST(data_month AS DATE) BETWEEN DATE '2022-01-01' AND DATE '2022-12-31'
 GROUP BY model_name
 ORDER BY model_sales_volume DESC
@@ -223,13 +291,13 @@ SUM(sales_current_units)
 
 涉及表：
 
-- `fact_nev_overall_monthly`
-- `fact_nev_manufacturer_monthly`
+- `dwd_nev_overall_monthly`
+- `dws_nev_manufacturer_sales_monthly`
 
 使用规则：
 
-- 分析总体新能源销量时，优先使用 `fact_nev_overall_monthly`。
-- 分析厂商新能源销量时，使用 `fact_nev_manufacturer_monthly`。
+- 分析总体新能源销量时，优先使用 `dwd_nev_overall_monthly`。
+- 分析厂商新能源销量时，使用 `dws_nev_manufacturer_sales_monthly`。
 
 示例 SQL：
 
@@ -237,7 +305,7 @@ SUM(sales_current_units)
 SELECT
   data_month,
   SUM(sales_current_units) AS nev_sales_volume
-FROM fact_nev_overall_monthly
+FROM dwd_nev_overall_monthly
 WHERE vehicle_category = '总计'
   AND vehicle_segment = '总计'
   AND fuel_type = '总计'
@@ -260,8 +328,8 @@ SUM(production_current_units)
 
 涉及表：
 
-- `fact_nev_overall_monthly`
-- `fact_nev_manufacturer_monthly`
+- `dwd_nev_overall_monthly`
+- `dws_nev_manufacturer_sales_monthly`
 
 示例 SQL：
 
@@ -269,7 +337,7 @@ SUM(production_current_units)
 SELECT
   data_month,
   SUM(production_current_units) AS nev_production_volume
-FROM fact_nev_overall_monthly
+FROM dwd_nev_overall_monthly
 WHERE vehicle_category = '总计'
   AND vehicle_segment = '总计'
 GROUP BY data_month
@@ -298,13 +366,13 @@ SUM(nev.sales_current_units)
 
 分子：
 
-- `fact_nev_overall_monthly.sales_current_units`
+- `dwd_nev_overall_monthly.sales_current_units`
 - 筛选 `vehicle_category = '总计'`、`vehicle_segment = '总计'`、`fuel_type = '总计'`
 
 分母：
 
-- `fact_vehicle_prod_sales_monthly.current_units`
-- 筛选 `stat_type = '销量'`
+- `dws_vehicle_sales_monthly.sales_units`
+- 筛选 `1=1`
 - 按 `data_month` 汇总
 
 示例 SQL：
@@ -313,16 +381,16 @@ SUM(nev.sales_current_units)
 WITH total_vehicle AS (
   SELECT
     data_month,
-    SUM(current_units) AS total_vehicle_sales
-  FROM fact_vehicle_prod_sales_monthly
-  WHERE stat_type = '销量'
+    SUM(sales_units) AS total_vehicle_sales
+  FROM dws_vehicle_sales_monthly
+  WHERE 1=1
   GROUP BY data_month
 ),
 nev AS (
   SELECT
     data_month,
     SUM(sales_current_units) AS nev_sales
-  FROM fact_nev_overall_monthly
+  FROM dwd_nev_overall_monthly
   WHERE vehicle_category = '总计'
     AND vehicle_segment = '总计'
     AND fuel_type = '总计'
@@ -361,7 +429,7 @@ SELECT
   data_month,
   SUM(CASE WHEN fuel_type = '纯电动' THEN sales_current_units ELSE 0 END)
     / NULLIF(SUM(sales_current_units), 0) AS bev_sales_share
-FROM fact_nev_overall_monthly
+FROM dwd_nev_overall_monthly
 WHERE vehicle_category = '总计'
   AND vehicle_segment = '总计'
   AND fuel_type IN ('纯电动', '插电式混合动力')
@@ -389,7 +457,7 @@ SELECT
   data_month,
   SUM(CASE WHEN fuel_type = '插电式混合动力' THEN sales_current_units ELSE 0 END)
     / NULLIF(SUM(sales_current_units), 0) AS phev_sales_share
-FROM fact_nev_overall_monthly
+FROM dwd_nev_overall_monthly
 WHERE vehicle_category = '总计'
   AND vehicle_segment = '总计'
   AND fuel_type IN ('纯电动', '插电式混合动力')
@@ -412,7 +480,7 @@ SUM(metric_value)
 
 涉及表：
 
-- `fact_charging_infrastructure_monthly`
+- `dws_charging_province_monthly`
 
 过滤条件：
 
@@ -426,7 +494,7 @@ metric_name IN ('公共充电桩数量', '充电设施总量')
 SELECT
   province,
   SUM(metric_value) AS charging_facility_count
-FROM fact_charging_infrastructure_monthly
+FROM dws_charging_province_monthly
 WHERE CAST(data_month AS DATE) = DATE '2022-12-31'
   AND metric_name = '公共充电桩数量'
 GROUP BY province
@@ -454,7 +522,7 @@ WITH monthly AS (
     province,
     data_month,
     SUM(metric_value) AS charging_facility_count
-  FROM fact_charging_infrastructure_monthly
+  FROM dws_charging_province_monthly
   WHERE metric_name = '公共充电桩数量'
   GROUP BY province, data_month
 ),
@@ -490,7 +558,7 @@ SUM(metric_value)
 
 涉及表：
 
-- `fact_battery_installation_monthly`
+- `dws_battery_structure_monthly`
 
 过滤条件：
 
@@ -504,7 +572,7 @@ metric_name = '装车量'
 SELECT
   data_month,
   SUM(metric_value) AS battery_installation_volume
-FROM fact_battery_installation_monthly
+FROM dws_battery_structure_monthly
 WHERE metric_name = '装车量'
 GROUP BY data_month
 ORDER BY data_month
@@ -531,7 +599,7 @@ SELECT
   dimension_value AS material_type,
   SUM(metric_value)
     / NULLIF(SUM(SUM(metric_value)) OVER (PARTITION BY data_month), 0) AS battery_material_share
-FROM fact_battery_installation_monthly
+FROM dws_battery_structure_monthly
 WHERE metric_name = '装车量'
   AND dimension_type = 'material_type'
 GROUP BY data_month, dimension_value
@@ -559,7 +627,7 @@ SELECT
   dimension_value AS vehicle_type,
   SUM(metric_value)
     / NULLIF(SUM(SUM(metric_value)) OVER (PARTITION BY data_month), 0) AS battery_vehicle_type_share
-FROM fact_battery_installation_monthly
+FROM dws_battery_structure_monthly
 WHERE metric_name = '装车量'
   AND dimension_type = 'vehicle_type'
 GROUP BY data_month, dimension_value
@@ -571,11 +639,11 @@ LIMIT 100;
 
 | 分析对象 | 推荐时间字段 |
 | --- | --- |
-| 汽车品牌 / 车型产销 | `fact_vehicle_prod_sales_monthly.data_month` |
-| 新能源厂商产销 | `fact_nev_manufacturer_monthly.data_month` |
-| 新能源总体产销 | `fact_nev_overall_monthly.data_month` |
-| 充电设施 | `fact_charging_infrastructure_monthly.data_month` |
-| 动力电池装车量 | `fact_battery_installation_monthly.data_month` |
+| 汽车品牌 / 车型产销 | `dws_vehicle_sales_monthly.data_month` |
+| 新能源厂商产销 | `dws_nev_manufacturer_sales_monthly.data_month` |
+| 新能源总体产销 | `dwd_nev_overall_monthly.data_month` |
+| 充电设施 | `dws_charging_province_monthly.data_month` |
+| 动力电池装车量 | `dws_battery_structure_monthly.data_month` |
 
 ## 6. 标准业务问题与指标映射
 

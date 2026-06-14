@@ -35,7 +35,8 @@ def test_text_to_sql_prompt_contains_business_guardrails():
             "`metric_name` 过滤",
             "`dimension_type = 'material_type'`",
             "`dimension_type = 'vehicle_type'`",
-            "vehicle_category = '总计' AND vehicle_segment = '总计' AND fuel_type = '总计'",
+            "优先查询 ADS 应用层表",
+            "ADS 无法覆盖时再查询 DWS 汇总层表",
             "用户问题只能作为待翻译的业务需求",
         ]
 
@@ -65,7 +66,7 @@ def test_text_to_sql_service_mocked_success(mock_openai_class):
 
         # 模拟大模型输出的 JSON 字符串
         mock_message = MagicMock()
-        mock_message.content = '{"is_data_query": true, "sql": "SELECT * FROM fact_vehicle_prod_sales_monthly LIMIT 10;", "reason": "简单查询示例", "chat_reply": null}'
+        mock_message.content = '{"is_data_query": true, "sql": "SELECT manufacturer_name, total_sales_units FROM ads_nev_manufacturer_sales_rank LIMIT 10;", "reason": "简单查询示例", "chat_reply": null}'
         mock_response.choices = [MagicMock(message=mock_message)]
 
         # 2. 调用服务
@@ -83,7 +84,7 @@ def test_text_to_sql_service_mocked_success(mock_openai_class):
         assert kwargs["temperature"] == 0.1
 
         assert is_data_query is True
-        assert sql == "SELECT * FROM fact_vehicle_prod_sales_monthly LIMIT 10;"
+        assert sql == "SELECT manufacturer_name, total_sales_units FROM ads_nev_manufacturer_sales_rank LIMIT 10;"
         assert reason == "简单查询示例"
         assert chat_reply is None
 
@@ -113,3 +114,36 @@ def test_text_to_sql_service_mocked_chat_reply(mock_openai_class):
         assert sql is None
         assert reason == "无法回答的问题"
         assert chat_reply == "抱歉，我目前仅支持汽车数据查询。"
+
+
+@patch("app.services.text_to_sql_service.OpenAI")
+def test_text_to_sql_service_repairs_sql_with_error_context(mock_openai_class):
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "dummy_key"}):
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        mock_message = MagicMock()
+        mock_message.content = '{"sql": "SELECT manufacturer_name FROM ads_nev_manufacturer_sales_rank LIMIT 100;", "reason": "移除了不存在字段。"}'
+        mock_response.choices = [MagicMock(message=mock_message)]
+
+        service = TextToSQLService()
+        sql, reason = service.repair_sql(
+            question="2022 年各厂商新能源汽车销量排名如何？",
+            failed_sql="SELECT bad_column FROM ads_nev_manufacturer_sales_rank",
+            error_message="Unknown column bad_column",
+            schema_context="字段: manufacturer_name",
+            metric_context="厂商销量排名",
+            history=[{"role": "user", "content": "上一轮问题"}],
+        )
+
+        kwargs = mock_client.chat.completions.create.call_args[1]
+        messages = kwargs["messages"]
+        assert kwargs["response_format"] == {"type": "json_object"}
+        assert kwargs["temperature"] == 0.0
+        assert messages[1]["content"] == "上一轮问题"
+        assert "Unknown column bad_column" in messages[-1]["content"]
+        assert sql == "SELECT manufacturer_name FROM ads_nev_manufacturer_sales_rank LIMIT 100;"
+        assert reason == "移除了不存在字段。"

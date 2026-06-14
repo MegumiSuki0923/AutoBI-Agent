@@ -74,8 +74,8 @@ def test_analysis_service_mocked_success(mock_openai_class):
         analysis = service.generate_analysis(
             question="2022 年各厂商新能源汽车销量排名如何？",
             sql=(
-                "SELECT manufacturer_name, SUM(sales_current_units) AS total_sales "
-                "FROM fact_nev_manufacturer_monthly GROUP BY manufacturer_name LIMIT 5"
+                "SELECT manufacturer_name, total_sales_units AS total_sales "
+                "FROM ads_nev_manufacturer_sales_rank WHERE stat_year = 2022 ORDER BY sales_rank LIMIT 5"
             ),
             columns=["manufacturer_name", "total_sales"],
             rows=[["比亚迪", 1860000], ["特斯拉", 710000]],
@@ -92,7 +92,7 @@ def test_analysis_service_mocked_success(mock_openai_class):
 
         prompt = kwargs["messages"][1]["content"]
         assert "2022 年各厂商新能源汽车销量排名如何？" in prompt
-        assert "fact_nev_manufacturer_monthly" in prompt
+        assert "ads_nev_manufacturer_sales_rank" in prompt
         assert "比亚迪" in prompt
 
         assert "核心结论：比亚迪在样例结果中销量最高。" in analysis

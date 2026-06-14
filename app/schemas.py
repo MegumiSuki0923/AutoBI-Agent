@@ -1,11 +1,18 @@
-from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+
+from pydantic import BaseModel, Field
+
 
 class AskRequest(BaseModel):
     query: str = Field(
         ...,
         description="用户输入的关于汽车产业数据的自然语言提问",
         example="2022 年各厂商新能源汽车销量排名如何？"
+    )
+    thread_id: Optional[str] = Field(
+        None,
+        description="会话ID，用于多轮对话历史关联（如不传则不关联历史）",
+        example="session-12345"
     )
 
 class ChartSuggestion(BaseModel):
@@ -42,6 +49,30 @@ class QueryResult(BaseModel):
         example=[["比亚迪", 1860000], ["特斯拉", 710000], ["广汽埃安", 270000]]
     )
 
+
+class ExecutionStep(BaseModel):
+    name: str = Field(
+        ...,
+        description="执行步骤名称，例如 intent_check、generate_sql、execute_sql",
+        example="generate_sql",
+    )
+    status: str = Field(
+        ...,
+        description="执行步骤状态，例如 success、failed",
+        example="success",
+    )
+    message: str = Field(
+        ...,
+        description="执行步骤的简要说明",
+        example="已生成候选 SQL",
+    )
+    elapsed_ms: float = Field(
+        ...,
+        description="该步骤自身耗时，单位毫秒",
+        example=12.34,
+    )
+
+
 class AskResponse(BaseModel):
     query: str = Field(
         ...,
@@ -74,4 +105,8 @@ class AskResponse(BaseModel):
     execution_time_ms: float = Field(
         ...,
         description="整个接口在后端链路中处理消耗的时间（毫秒）"
+    )
+    execution_steps: List[ExecutionStep] = Field(
+        default_factory=list,
+        description="后端 Agent 编排链路中已经执行的步骤",
     )
